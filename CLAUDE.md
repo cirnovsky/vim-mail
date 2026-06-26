@@ -81,7 +81,9 @@ uncommitted staged edits. Both first call `mail#_ok_to_refresh(action)`: if
 `&modified`, it confirms via `mail#_confirm()` (Discard/Cancel) and aborts on
 cancel. `mail#_confirm` is a thin wrapper around `confirm()` so tests can stub it.
 (`R` and `:w`'s own refresh are not guarded — `R` is an explicit discard, and
-`:w` refreshes after committing.)
+`:w` refreshes after committing.) *Future:* update the buffer incrementally
+(insert fetched lines / drop moved lines) so staged edits survive without a
+discard prompt — deferred; the guard is the floor.
 
 ## Key implementation details
 
