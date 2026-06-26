@@ -174,6 +174,19 @@ delete a footer line → that file isn't sent.
   (content-type from `mimetypes`), wrapping into `multipart/mixed`. The recipient's
   ingestion regenerates the `Attachments:` footer from the MIME parts.
 
+**Inline images (compose buffer)** — `<leader>p`. `mail#paste_image()` grabs an
+image from the clipboard: raw image *data* (screenshot) via
+`mail#_clipboard_image` (`pngpaste`/`xclip`), else copied image *file(s)*
+(`mail#_clipboard_files`). All-or-nothing: if any clipboard file isn't an image,
+it warns and adds nothing. Each image is registered inline (`{id, path, inline:1}`)
+and inserts an `[img id]` marker at the cursor (the marker lives in the body, not
+the footer). On `:w`, `mail#_inline_images(body_lines)` finds surviving `[img id]`
+markers and `mail#send` emits `X-Mail-Inline: <id> <path>` per image. `send_mail`
+→ `_embed_inline_images` replaces `[img id]` in the HTML with
+`<img src="cid:mail-inline-id">` and attaches the bytes as a `multipart/related`
+part (image type sniffed); the plain part keeps the literal `[img id]`. Round-trips:
+the recipient's ingestion re-derives `[img id]` in `body.txt`.
+
 **`o` preview strips quotes**
 Lines starting with `>` and attribution lines filtered out.
 
@@ -202,7 +215,9 @@ Filtered headers + body + thread ancestors (each ancestor also filtered headers)
 | `F` | Forward as attachment (original as a `message/rfc822` `.eml`; byte-exact) |
 
 Compose-buffer keymaps (in `ftplugin/mail-compose.vim`): `:Attach {paths…}` /
-`<leader>A` (attach by path), `<leader>a` (attach clipboard files).
+`<leader>A` (attach by path), `<leader>a` (attach clipboard files), `<leader>p`
+(inline clipboard image / image files). `<leader>p` needs `pngpaste` (macOS) or
+`xclip`/`wl-paste` (Linux) for screenshot data.
 | `<leader>c` | Compose new message |
 | `<leader>f` | Fetch mail (async fetchmail, refreshes index) |
 | `R` | Refresh from disk |
@@ -230,6 +245,8 @@ Check with `:echo has('job') && has('timers') && has('lambda') && has('conceal')
 | `sendmail` | Delivering outgoing mail (called by `mail_store.py send`) | ships with macOS Postfix |
 | `open` / `xdg-open` | Opening `body.html` in browser (`x` keymap) | macOS built-in / `xdg-utils` on Linux |
 | `python3` | Running `mail_store.py` | `brew install python` or system |
+| `pngpaste` / `xclip` / `wl-paste` | Clipboard image data for `<leader>p` (optional) | `brew install pngpaste` / `xclip` / `wl-clipboard` |
+| `osascript` / `xclip` | Clipboard file paths for `<leader>a` (optional) | macOS built-in / `xclip` |
 
 Postfix must be configured to relay through Gmail SMTP — see `mail-setup.md` §1.
 

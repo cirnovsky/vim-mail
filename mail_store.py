@@ -417,6 +417,45 @@ def _sniff_image_type(data: bytes, fallback: str) -> str:
     return fallback if fallback.startswith("image/") else (fallback or "application/octet-stream")
 
 
+def _embed_inline_images(msg: EmailMessage, imap: dict) -> None:
+    """Turn '[img <id>]' markers in the HTML part into inline cid images.
+
+    imap: {id: (content_type, bytes)}. The matching `[img id]` in the text/html
+    part becomes <img src="cid:mail-inline-<id>"> and the bytes are attached as a
+    multipart/related part. The text/plain part keeps the literal `[img id]`
+    (round-trips to the recipient's body.txt). Marker ids with no image are left
+    as-is."""
+    import re as _re
+    html_leaf = next((p for p in msg.walk()
+                      if p.get_content_type() == "text/html"), None)
+    if html_leaf is None:
+        return
+    used: set[str] = set()
+
+    def repl(m: "_re.Match") -> str:
+        i = m.group(1)
+        if i in imap:
+            used.add(i)
+            return f'<img src="cid:mail-inline-{i}" style="max-width:100%">'
+        return m.group(0)
+
+    new_html = _re.sub(r"\[img (\d+)\]", repl, html_leaf.get_content())
+    if not used:
+        return
+    html_leaf.set_content(new_html, subtype="html")
+    # Attach into the existing related container (reply embedding) if present,
+    # else add_related converts the html leaf into one.
+    related = next((p for p in msg.walk()
+                    if p.get_content_type() == "multipart/related"), None)
+    target = related if isinstance(related, EmailMessage) else html_leaf
+    for i in used:
+        ctype, data = imap[i]
+        maintype, _, subtype = ctype.partition("/")
+        target.add_related(data, maintype=maintype,
+                           subtype=subtype or "octet-stream",
+                           cid=f"<mail-inline-{i}>")
+
+
 def send_mail(
     compose_path: Path,
     orig_dir: Optional[Path] = None,
@@ -453,6 +492,9 @@ def send_mail(
 
     Attachments: one 'X-Mail-Attach: <path>' control header per file (stripped,
     never sent) attaches that file, wrapping the message into multipart/mixed.
+    Inline images: 'X-Mail-Inline: <id> <path>' turns a '[img <id>]' marker in
+    the body into an inline cid image (multipart/related) in the HTML part; the
+    plain part keeps the literal '[img <id>]'.
 
     Forwarding (control headers in the compose block, stripped and never sent):
       - 'X-Forward-Inline': inline forward. orig_dir supplies the original; its
@@ -474,6 +516,7 @@ def send_mail(
     fwd_dir: Optional[str] = None       # X-Forward-Dir → forward-as-attachment
     fwd_inline = False                  # X-Forward-Inline → inline forward
     attach_files: list[str] = []        # X-Mail-Attach → file attachments
+    inline_imgs: dict[str, str] = {}    # X-Mail-Inline → {id: path} for [img id]
     for line in header_block.splitlines():
         if ":" not in line:
             continue
@@ -486,6 +529,10 @@ def send_mail(
         elif key.lower() == "x-mail-attach":
             if val:
                 attach_files.append(val)  # control header, not part of the message
+        elif key.lower() == "x-mail-inline":
+            num, _, path = val.partition(" ")  # "<id> <path>"
+            if num.strip() and path.strip():
+                inline_imgs[num.strip()] = path.strip()
         else:
             msg[key] = val
 
@@ -571,6 +618,21 @@ def send_mail(
                 content = content.encode("utf-8", "replace")
             msg.add_attachment(content, maintype=maintype,
                                subtype=subtype or "octet-stream", filename=name)
+
+    # Inline images (X-Mail-Inline): replace '[img id]' in the HTML with cid
+    # images (multipart/related). Done before user attachments so the related
+    # block stays inside the alternative, with attachments wrapping into mixed.
+    if inline_imgs:
+        import mimetypes
+        imap: dict = {}
+        for i, path in inline_imgs.items():
+            p = Path(path).expanduser()
+            if not p.is_file():
+                raise RuntimeError(f"inline image not found: {path}")
+            data = p.read_bytes()
+            ctype = _sniff_image_type(data, mimetypes.guess_type(p.name)[0] or "")
+            imap[i] = (ctype, data)
+        _embed_inline_images(msg, imap)
 
     # User attachments (X-Mail-Attach): attach each file, wrapping into mixed.
     # Validate all paths first so a bad one fails before anything is sent.

@@ -349,16 +349,24 @@ strips:
   as a `message/rfc822` part. Byte-exact and lossless — the recipient gets the
   original intact (even re-verifiable against DKIM), as an openable `.eml`.
 
-#### Attachments
+#### Attachments and inline images
 
-In a compose buffer, attach files by path with `:Attach {paths…}` (Tab-completes,
-globs expand) or `<leader>A` (a prefilled `:Attach `), or attach files copied to
-the clipboard with `<leader>a`. Each shows as a line in a trailing `Attachments:`
-footer (`[1] report.pdf`); the buffer is the source of truth, so deleting a line
-drops that file. On `:w` the footer is resolved to paths and stripped from the
-sent body (it's a compose affordance, not literal text), and each file is added
-as a `multipart/mixed` part (content-type guessed from the extension). The
-recipient's ingestion regenerates the `Attachments:` footer from the MIME parts.
+In a compose buffer:
+- **Attach files** — `:Attach {paths…}` (Tab-completes, globs expand), `<leader>A`
+  (a prefilled `:Attach `), or `<leader>a` (files copied to the clipboard). Each
+  shows as a line in a trailing `Attachments:` footer (`[1] report.pdf`); the
+  buffer is the source of truth, so deleting a line drops that file. On `:w` the
+  footer is resolved to paths and stripped from the sent body, and each file is
+  added as a `multipart/mixed` part (content-type from the extension).
+- **Inline images** — `<leader>p` pastes an image from the clipboard: a screenshot
+  (raw image data, needs `pngpaste`/`xclip`) or copied image file(s). It inserts an
+  `[img N]` marker at the cursor (all-or-nothing — refuses if any clipboard file
+  isn't an image). On `:w`, each `[img N]` becomes an inline `cid` image
+  (`multipart/related`) in the HTML part; the plain part keeps the literal
+  `[img N]`, exactly like a received message's `body.txt`.
+
+Both round-trip: the recipient's ingestion regenerates the `Attachments:` footer
+and `[img N]` markers from the MIME parts.
 
 #### Thread reconstruction
 
@@ -389,8 +397,8 @@ Current suites:
 | `tests/test_reply.py` | `mail_store.py` send (calls the real function): both reply classes (plain-text → order-preserving HTML; HTML → embedded `body.html` with cid images re-attached as multipart/related), both forward modes (inline embed + re-attach; as-attachment `message/rfc822`), `quote_text` clean sourcing, verbatim text/plain, `In-Reply-To`/`References` threading. |
 | `tests/test_ingest.py` | Ingestion of a **real** complex message (`fixtures/embrace-the-chaos/raw.eml` — 2 tables, inline cid image, external image, businesscard link, `.ics`): attachments downloaded, links footnoted, body parsed, `quote_text` clean. |
 | `tests/test_reply_integration.py` | Full pipeline on that real message: CLI ingest → real headless `vim` replies (top-post) **and forwards both ways** + sends (fake `sendmail`) → sent box verified — reply (multipart/alternative, tables embedded, cid as multipart/related, clean `>` quote, threading), inline forward (tables embedded, `.ics` re-attached, new thread), and as-attachment forward (`message/rfc822`, attachments intact). |
-| `tests/test_attach.py` | `mail_store.py` attachments: `X-Mail-Attach` → `multipart/mixed` parts, content-type guessing, header stripped, missing-file error. |
-| `tests/test_compose.vim` | Compose buffers: `mail#reply()` (headers, attribution, `> `-quoted body), both forward modes, and attachments (`Attachments:` footer build + `mail#_split_attachments` resolve/strip, deleted line drops file). |
+| `tests/test_attach.py` | `mail_store.py` attachments + inline images: `X-Mail-Attach` → `multipart/mixed`, `X-Mail-Inline` → `[img N]` becomes a `cid` image (`multipart/related`), combined, content-type guessing, headers stripped, missing-file errors. |
+| `tests/test_compose.vim` | Compose buffers: `mail#reply()`, both forward modes, attachments (`Attachments:` footer + `mail#_split_attachments` resolve/strip), and inline images (`mail#_inline_images` resolution + `mail#paste_image` marker insert). |
 
 Fixtures: real sample messages live one directory per case under
 `tests/fixtures/<case>/` (each holds a `raw.eml` and any static assets);

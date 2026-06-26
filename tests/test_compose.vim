@@ -151,10 +151,68 @@ function! Test_attach_footer_and_split() abort
   call delete(f1) | call delete(f2)
 endfunction
 
+" Inline images: mail#_register_inline tags entries inline=1 (no footer); a
+" surviving '[img id]' marker in the body resolves to [id, path] via
+" mail#_inline_images; deleting the marker drops it.
+function! Test_inline_images_resolve() abort
+  let root = tempname() . '/Mail'
+  call s:mkmsg(root . '/inbox/20260101T000000Z_aabbccdd')
+  let g:mail_root = root
+  let g:mail_from = 'Me <me@example.com>'
+  call mail#open('inbox')
+  call cursor(1, 1)
+  call mail#compose()
+
+  let img = tempname() . '.png' | call writefile(['x'], img)
+  let id = mail#_register_inline(img)
+  call assert_equal(1, id, 'first inline id')
+  call assert_equal(1, b:mail_attachments[0].inline, 'tagged inline')
+
+  let body = ['look:', '[img 1]', 'bye']
+  call assert_equal([[1, fnamemodify(img, ':p')]], mail#_inline_images(body),
+        \ 'surviving marker resolves to [id, path]')
+  call assert_equal([], mail#_inline_images(['no marker here']),
+        \ 'no marker -> nothing (deleted image dropped)')
+
+  bwipeout!
+  call delete(root, 'rf') | call delete(img)
+endfunction
+
+" Stub the clipboard-image grab (the only part needing pngpaste/xclip) so we can
+" test mail#paste_image's flow headlessly. Defined after 'runtime autoload' so it
+" overrides the real one.
+function! mail#_clipboard_image() abort
+  return get(g:, 'test_clip_img', '')
+endfunction
+
+function! Test_paste_image_inserts_marker() abort
+  let root = tempname() . '/Mail'
+  call s:mkmsg(root . '/inbox/20260101T000000Z_aabbccdd')
+  let g:mail_root = root
+  let g:mail_from = 'Me <me@example.com>'
+  call mail#open('inbox')
+  call cursor(1, 1)
+  call mail#compose()
+
+  let g:test_clip_img = tempname() . '.png' | call writefile(['x'], g:test_clip_img)
+  " cursor on the empty body line; paste the (stubbed) clipboard image
+  call cursor(line('$'), 1)
+  call mail#paste_image()
+
+  call assert_match('\[img 1\]', join(getline(1, '$'), "\n"), '[img 1] marker inserted')
+  call assert_equal(1, len(b:mail_attachments), 'one inline image tracked')
+  call assert_equal(1, b:mail_attachments[0].inline, 'tagged inline')
+
+  unlet g:test_clip_img
+  bwipeout!
+  call delete(root, 'rf')
+endfunction
+
 let v:errors = []
 let s:tests = ['Test_reply_builds_plain_threading_buffer',
       \ 'Test_forward_inline_buffer', 'Test_forward_attach_buffer',
-      \ 'Test_attach_footer_and_split']
+      \ 'Test_attach_footer_and_split', 'Test_inline_images_resolve',
+      \ 'Test_paste_image_inserts_marker']
 for s:t in s:tests
   try
     call call(s:t, [])

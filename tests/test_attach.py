@@ -1,6 +1,8 @@
 """
-Test mail_store.py attachment handling: 'X-Mail-Attach: <path>' control headers
-(stripped, never sent) attach files, wrapping the message into multipart/mixed.
+Test mail_store.py attachment + inline-image handling via control headers
+(stripped, never sent):
+  - X-Mail-Attach: <path>      → file attachment (multipart/mixed)
+  - X-Mail-Inline: <id> <path> → '[img id]' becomes a cid image (multipart/related)
 
 Run: python3 tests/test_attach.py
 """
@@ -96,6 +98,57 @@ with tempfile.TemporaryDirectory() as tmp:
     att = list(msg.iter_attachments())[0]
     ok('unknown ext → application/octet-stream',
        att.get_content_type() == 'application/octet-stream', att.get_content_type())
+
+
+PNG = b'\x89PNG\r\n\x1a\n' + b'\x00' * 32
+
+print('\n=== Case 5: inline image — [img id] becomes a cid image ===')
+with tempfile.TemporaryDirectory() as tmp:
+    png = Path(tmp) / 'shot.png'
+    png.write_bytes(PNG)
+    compose = (f"From: a@x\nTo: b@y\nSubject: look\nX-Mail-Inline: 1 {png}\n\n"
+               f"Here:\n[img 1]\nthanks\n")
+    msg = send_compose(compose)
+    ok('X-Mail-Inline not leaked', msg.get('X-Mail-Inline') is None)
+    plain = [p.get_content() for p in msg.walk() if p.get_content_type() == 'text/plain'][0]
+    html = [p.get_content() for p in msg.walk() if p.get_content_type() == 'text/html'][0]
+    ok('plain keeps literal [img 1]', '[img 1]' in plain)
+    ok('html replaces marker with cid img',
+       'src="cid:mail-inline-1"' in html and '[img 1]' not in html)
+    ok('multipart/related present', any(p.get_content_type() == 'multipart/related' for p in msg.walk()))
+    imgs = [p for p in msg.walk() if (p.get('Content-ID') or '') == '<mail-inline-1>']
+    ok('image attached with the cid', len(imgs) == 1)
+    ok('image bytes preserved', imgs and imgs[0].get_content() == PNG)
+
+
+print('\n=== Case 6: inline image + file attachment together ===')
+with tempfile.TemporaryDirectory() as tmp:
+    png = Path(tmp) / 's.png'
+    png.write_bytes(PNG)
+    pdf = Path(tmp) / 'doc.pdf'
+    pdf.write_bytes(b'%PDF-1.4')
+    compose = (f"From: a@x\nTo: b@y\nSubject: both\n"
+               f"X-Mail-Inline: 1 {png}\nX-Mail-Attach: {pdf}\n\nsee [img 1]\n")
+    msg = send_compose(compose)
+    ok('top is multipart/mixed', msg.get_content_type() == 'multipart/mixed', msg.get_content_type())
+    ok('inline image is related (not a download attachment)',
+       any((p.get('Content-ID') or '') == '<mail-inline-1>' for p in msg.walk()))
+    ok('pdf is a real attachment', 'doc.pdf' in {p.get_filename() for p in msg.iter_attachments()})
+
+
+print('\n=== Case 7: missing inline image raises (pre-send) ===')
+raised = False
+try:
+    send_compose("From: a@x\nTo: b@y\nSubject: x\nX-Mail-Inline: 1 /no/img.png\n\n[img 1]\n")
+except RuntimeError as e:
+    raised = 'not found' in str(e)
+ok('missing inline image raises', raised)
+
+
+print('\n=== Case 8: [img N] with no inline mapping is left literal ===')
+msg = send_compose("From: a@x\nTo: b@y\nSubject: x\n\nplain [img 9] text\n")
+html = [p.get_content() for p in msg.walk() if p.get_content_type() == 'text/html'][0]
+ok('unmapped [img 9] not turned into cid', 'cid:' not in html and '[img 9]' in html)
 
 
 print(f'\n{"="*40}')

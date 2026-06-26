@@ -938,9 +938,110 @@ function! mail#_register_attachment(path) abort
     let b:mail_attach_seq  = 0
   endif
   let b:mail_attach_seq += 1
-  call add(b:mail_attachments, {'id': b:mail_attach_seq, 'path': p})
+  call add(b:mail_attachments, {'id': b:mail_attach_seq, 'path': p, 'inline': 0})
   call mail#_append_footer_line(b:mail_attach_seq, fnamemodify(p, ':t'))
   return 1
+endfunction
+
+" Inline image: register the file and return its id (for the '[img id]' marker).
+" Unlike attachments these don't go in the footer — the marker lives in the body.
+function! mail#_register_inline(path) abort
+  let p = fnamemodify(expand(a:path), ':p')
+  if !filereadable(p)
+    echohl ErrorMsg | echom 'mail: file not readable: ' . a:path | echohl None
+    return 0
+  endif
+  if !exists('b:mail_attachments')
+    let b:mail_attachments = []
+    let b:mail_attach_seq  = 0
+  endif
+  let b:mail_attach_seq += 1
+  call add(b:mail_attachments, {'id': b:mail_attach_seq, 'path': p, 'inline': 1})
+  return b:mail_attach_seq
+endfunction
+
+function! mail#_is_image(path) abort
+  return fnamemodify(a:path, ':e') =~? '^\%(png\|jpe\?g\|gif\|bmp\|webp\|tiff\?\|heic\)$'
+endfunction
+
+" Save clipboard image *data* (e.g. a screenshot) to a temp PNG; '' if none.
+function! mail#_clipboard_image() abort
+  let tmp = tempname() . '.png'
+  if has('mac')
+    if !executable('pngpaste') | return '' | endif
+    call system('pngpaste ' . shellescape(tmp))
+  else
+    if !executable('xclip') | return '' | endif
+    call system('xclip -selection clipboard -t image/png -o > ' . shellescape(tmp) . ' 2>/dev/null')
+  endif
+  if v:shell_error == 0 && filereadable(tmp) && getfsize(tmp) > 0
+    return tmp
+  endif
+  call delete(tmp)
+  return ''
+endfunction
+
+" <leader>p — insert inline image(s) from the clipboard: raw image data
+" (screenshot) or copied image file(s). All-or-nothing: if any clipboard file
+" isn't an image, warn and add nothing. Each image inserts an '[img id]' marker.
+function! mail#paste_image() abort
+  if !exists('b:mail_compose_to')
+    echohl ErrorMsg | echom 'mail: not a compose buffer' | echohl None
+    return
+  endif
+  let data = mail#_clipboard_image()
+  if data !=# ''
+    let imgs = [data]
+  else
+    let files = mail#_clipboard_files()
+    if empty(files)
+      echohl WarningMsg
+      echom has('mac') && !executable('pngpaste')
+            \ ? 'mail: no image file in clipboard (install pngpaste for screenshots)'
+            \ : 'mail: no image in clipboard'
+      echohl None
+      return
+    endif
+    for f in files
+      if !mail#_is_image(f)
+        echohl ErrorMsg
+        echom 'mail: not an image: ' . fnamemodify(f, ':t') . ' — <leader>p needs all images (use <leader>a)'
+        echohl None
+        return
+      endif
+    endfor
+    let imgs = files
+  endif
+  let markers = []
+  for img in imgs
+    let id = mail#_register_inline(img)
+    if id > 0 | call add(markers, '[img ' . id . ']') | endif
+  endfor
+  if !empty(markers)
+    execute 'normal! a' . join(markers, ' ')
+    echo 'Inserted ' . len(markers) . ' inline image(s)'
+  endif
+endfunction
+
+" Inline images referenced by surviving '[img id]' markers in the body:
+" returns [[id, path], …] for entries registered as inline.
+function! mail#_inline_images(body_lines) abort
+  let id2path = {}
+  for a in get(b:, 'mail_attachments', [])
+    if get(a, 'inline', 0) | let id2path[a.id] = a.path | endif
+  endfor
+  let ids = []
+  call substitute(join(a:body_lines, "\n"), '\[img \(\d\+\)\]',
+        \ '\=add(ids, str2nr(submatch(1)))', 'g')
+  let found = []
+  let seen = {}
+  for n in ids
+    if has_key(id2path, n) && !has_key(seen, n)
+      let seen[n] = 1
+      call add(found, [n, id2path[n]])
+    endif
+  endfor
+  return found
 endfunction
 
 " Append '[id] name' to the trailing Attachments: footer (creating it if none).
@@ -1105,6 +1206,9 @@ function! mail#send() abort
   endif
   for p in split.paths
     call add(msg, 'X-Mail-Attach: ' . p)
+  endfor
+  for pair in mail#_inline_images(body_lines)
+    call add(msg, 'X-Mail-Inline: ' . pair[0] . ' ' . pair[1])
   endfor
   let msg += [''] + body_lines
 
