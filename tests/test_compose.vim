@@ -111,9 +111,50 @@ function! Test_forward_attach_buffer() abort
   call delete(root, 'rf')
 endfunction
 
+" Attachments: registering a file adds it to b:mail_attachments and writes an
+" Attachments: footer; mail#_split_attachments resolves surviving footer ids to
+" paths and strips the footer from the body (deleted line => file dropped).
+function! Test_attach_footer_and_split() abort
+  let root = tempname() . '/Mail'
+  call s:mkmsg(root . '/inbox/20260101T000000Z_aabbccdd')
+  let g:mail_root = root
+  let g:mail_from = 'Me <me@example.com>'
+  call mail#open('inbox')
+  call cursor(1, 1)
+  call mail#compose()
+
+  let f1 = tempname() | call writefile(['x'], f1)
+  let f2 = tempname() | call writefile(['y'], f2)
+  call mail#attach(f1)
+  call mail#attach(f2)
+
+  let text = join(getline(1, '$'), "\n")
+  call assert_match('\nAttachments:\n', text, 'Attachments: footer created')
+  call assert_match('\[1\] ' . fnamemodify(f1, ':t'), text, 'first file listed')
+  call assert_match('\[2\] ' . fnamemodify(f2, ':t'), text, 'second file listed')
+  call assert_equal(2, len(b:mail_attachments), 'both tracked')
+
+  " Resolve the whole body: both surviving -> both paths, footer stripped.
+  let body = getline(1, '$')[index(getline(1,'$'), '') + 1 :]  " body after header blank
+  let r = mail#_split_attachments(body)
+  call assert_equal([fnamemodify(f1, ':p'), fnamemodify(f2, ':p')], r.paths,
+        \ 'both paths resolved')
+  call assert_notmatch('Attachments:', join(r.body, "\n"), 'footer stripped from body')
+
+  " Drop the [1] entry from the footer -> only the second file is sent.
+  call filter(body, 'v:val !~# "^\\[1\\] "')
+  let r2 = mail#_split_attachments(body)
+  call assert_equal([fnamemodify(f2, ':p')], r2.paths, 'deleted footer line drops file')
+
+  bwipeout!
+  call delete(root, 'rf')
+  call delete(f1) | call delete(f2)
+endfunction
+
 let v:errors = []
 let s:tests = ['Test_reply_builds_plain_threading_buffer',
-      \ 'Test_forward_inline_buffer', 'Test_forward_attach_buffer']
+      \ 'Test_forward_inline_buffer', 'Test_forward_attach_buffer',
+      \ 'Test_attach_footer_and_split']
 for s:t in s:tests
   try
     call call(s:t, [])

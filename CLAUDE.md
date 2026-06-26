@@ -158,6 +158,22 @@ for the user's note. `mail#send()` writes a control header (stripped by
   `<dir>/raw.eml` as a `message/rfc822` part (named from the subject) —
   byte-exact and lossless, opened by the recipient.
 
+**Attachments (compose buffer)**
+`b:mail_attachments` = `[{id, path}]` (monotonic `id` in `b:mail_attach_seq`).
+Each attachment shows as a line in a trailing `Attachments:` footer
+(`[id] basename`, matching the ingestion footer). Buffer is the source of truth:
+delete a footer line → that file isn't sent.
+- `:Attach {paths…}` (buffer-local, `-complete=file`, globs expanded) /
+  `<leader>A` (prefilled `:Attach `) — attach by path. `<leader>a` — attach
+  clipboard file(s) (`mail#_clipboard_files`: macOS `osascript` single-file;
+  Linux `xclip` `text/uri-list` multi).
+- On `:w`, `mail#_split_attachments(body_lines)` resolves surviving footer ids →
+  paths and **strips the footer from the sent body** (it's a compose affordance,
+  not literal text); `mail#send` emits one `X-Mail-Attach: <path>` per file.
+- `send_mail` strips `X-Mail-Attach` and adds each file via `add_attachment`
+  (content-type from `mimetypes`), wrapping into `multipart/mixed`. The recipient's
+  ingestion regenerates the `Attachments:` footer from the MIME parts.
+
 **`o` preview strips quotes**
 Lines starting with `>` and attribution lines filtered out.
 
@@ -184,6 +200,9 @@ Filtered headers + body + thread ancestors (each ancestor also filtered headers)
 | `r` | Reply (opens compose buffer, `:w` sends) |
 | `f` | Forward inline (original embedded in the body; re-render, like Gmail) |
 | `F` | Forward as attachment (original as a `message/rfc822` `.eml`; byte-exact) |
+
+Compose-buffer keymaps (in `ftplugin/mail-compose.vim`): `:Attach {paths…}` /
+`<leader>A` (attach by path), `<leader>a` (attach clipboard files).
 | `<leader>c` | Compose new message |
 | `<leader>f` | Fetch mail (async fetchmail, refreshes index) |
 | `R` | Refresh from disk |

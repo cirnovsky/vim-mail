@@ -451,6 +451,9 @@ def send_mail(
     Threading is carried by the In-Reply-To / References headers, independent
     of MIME structure.
 
+    Attachments: one 'X-Mail-Attach: <path>' control header per file (stripped,
+    never sent) attaches that file, wrapping the message into multipart/mixed.
+
     Forwarding (control headers in the compose block, stripped and never sent):
       - 'X-Forward-Inline': inline forward. orig_dir supplies the original; its
         body is appended to the plain part (unquoted) and embedded in the HTML
@@ -470,6 +473,7 @@ def send_mail(
     msg = EmailMessage(policy=policy.SMTP)
     fwd_dir: Optional[str] = None       # X-Forward-Dir → forward-as-attachment
     fwd_inline = False                  # X-Forward-Inline → inline forward
+    attach_files: list[str] = []        # X-Mail-Attach → file attachments
     for line in header_block.splitlines():
         if ":" not in line:
             continue
@@ -479,6 +483,9 @@ def send_mail(
             fwd_dir = val            # control header, not part of the sent message
         elif key.lower() == "x-forward-inline":
             fwd_inline = True        # control header, not part of the sent message
+        elif key.lower() == "x-mail-attach":
+            if val:
+                attach_files.append(val)  # control header, not part of the message
         else:
             msg[key] = val
 
@@ -564,6 +571,22 @@ def send_mail(
                 content = content.encode("utf-8", "replace")
             msg.add_attachment(content, maintype=maintype,
                                subtype=subtype or "octet-stream", filename=name)
+
+    # User attachments (X-Mail-Attach): attach each file, wrapping into mixed.
+    # Validate all paths first so a bad one fails before anything is sent.
+    if attach_files:
+        import mimetypes
+        resolved = []
+        for raw_path in attach_files:
+            p = Path(raw_path).expanduser()
+            if not p.is_file():
+                raise RuntimeError(f"attachment not found: {raw_path}")
+            resolved.append(p)
+        for p in resolved:
+            ctype, _ = mimetypes.guess_type(p.name)
+            maintype, _, subtype = (ctype or "application/octet-stream").partition("/")
+            msg.add_attachment(p.read_bytes(), maintype=maintype,
+                               subtype=subtype or "octet-stream", filename=p.name)
 
     # Forward: attach the whole original as a message/rfc822 part (the body above
     # is the user's note + a short forwarded-header block). This carries the

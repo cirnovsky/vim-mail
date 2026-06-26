@@ -5,8 +5,8 @@ opens it and replies (top-post) / forwards -> CLI send (sendmail faked) -> CLI
 ingest into the sent box -> assert each sent message meets requirements.
 
 Exercises the whole pipeline together: mail_store ingestion, mail#reply quote
-sourcing, mail#forward, mail#send, the class-2 (HTML original) MIME build, and
-the message/rfc822 forward.
+sourcing, mail#forward (inline + as-attachment), mail#compose + :Attach, and
+mail#send (class-2 MIME, message/rfc822 forward, X-Mail-Attach attachments).
 
 Run: python3 tests/test_reply_integration.py   (needs vim on PATH)
 """
@@ -210,6 +210,55 @@ qall!
         ok('attach: forwarded original keeps its attachments',
            '3A0EC103@F1D05308.F10D3E6A00000000.png' in
            {q.get_filename() for q in inner.walk() if q.get_filename()})
+
+    # 6. Compose a NEW message via vim, :Attach a file, send — covers mail#send
+    #    emitting X-Mail-Attach and the multipart/mixed build end to end.
+    probe = STORE / 'attach_probe.bin'
+    probe.write_bytes(b'PROBE-BYTES-123')
+    cstatus = STORE / 'c_status'
+    cdriver = STORE / 'c_driver.vim'
+    cdriver.write_text(f"""
+set rtp+={REPO}
+let g:mail_python = '{PY}'
+let g:mail_store_py = '{REPO}/mail_store.py'
+runtime plugin/mail.vim
+runtime autoload/mail.vim
+let g:mail_root = '{STORE}'
+let g:mail_from = 'Me <me@example.com>'
+try
+  call mail#compose()
+  call setline(1, 'To: someone@example.com')
+  call setline(2, 'Subject: with attachment')
+  call mail#attach('{probe}')
+  call mail#send()
+  call writefile(['OK'], '{cstatus}')
+catch
+  call writefile(['ERR: ' . v:exception . ' @ ' . v:throwpoint], '{cstatus}')
+endtry
+qall!
+""")
+    cvr = subprocess.run([VIM, '-u', 'NONE', '-N', '-es', '-S', str(cdriver)],
+                         env=env, capture_output=True)
+    cst = cstatus.read_text().strip() if cstatus.exists() else '(no status)'
+    ok('vim compose+attach+send ran cleanly', cst == 'OK',
+       cst + ' | ' + cvr.stderr.decode('utf-8', 'replace'))
+
+    attached = None
+    for path in sorted((STORE / 'sent').glob('*/raw.eml')):
+        mm = email.message_from_bytes(path.read_bytes(), policy=email.policy.default)
+        if any(p.get_filename() == 'attach_probe.bin' for p in mm.walk()):
+            attached = mm
+            break
+    ok('attachment landed in sent box', attached is not None)
+    if attached is not None:
+        ok('compose+attach is multipart/mixed',
+           attached.get_content_type() == 'multipart/mixed', attached.get_content_type())
+        ok('X-Mail-Attach control header not leaked', attached.get('X-Mail-Attach') is None)
+        part = [p for p in attached.walk() if p.get_filename() == 'attach_probe.bin'][0]
+        ok('attached bytes preserved', part.get_content() == b'PROBE-BYTES-123')
+        ok('Attachments: footer not sent as literal body text',
+           not any(p.get_content_type() == 'text/plain' and 'Attachments:' in p.get_content()
+                   for p in attached.walk()))
 finally:
     shutil.rmtree(STORE, ignore_errors=True)
 

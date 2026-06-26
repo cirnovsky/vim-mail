@@ -917,6 +917,145 @@ function! mail#forward_attach() abort
   let b:mail_compose_forward = dir     " send attaches <dir>/raw.eml as rfc822
 endfunction
 
+" ---- attachments ---------------------------------------------------------
+"
+" b:mail_attachments = [{id, path}], keyed by a monotonic id. Each attachment
+" shows in the compose buffer as a line in a trailing 'Attachments:' footer
+" ('[id] basename'), matching the ingestion footer. The buffer is the source of
+" truth: delete a footer line and that file won't be sent. On :w, mail#send
+" resolves surviving footer ids to paths, strips the footer from the body, and
+" passes each path to mail_store.py via an 'X-Mail-Attach' control header.
+
+" Register a readable file as an attachment + add its footer line. Returns 1/0.
+function! mail#_register_attachment(path) abort
+  let p = fnamemodify(expand(a:path), ':p')
+  if !filereadable(p)
+    echohl ErrorMsg | echom 'mail: file not readable: ' . a:path | echohl None
+    return 0
+  endif
+  if !exists('b:mail_attachments')
+    let b:mail_attachments = []
+    let b:mail_attach_seq  = 0
+  endif
+  let b:mail_attach_seq += 1
+  call add(b:mail_attachments, {'id': b:mail_attach_seq, 'path': p})
+  call mail#_append_footer_line(b:mail_attach_seq, fnamemodify(p, ':t'))
+  return 1
+endfunction
+
+" Append '[id] name' to the trailing Attachments: footer (creating it if none).
+function! mail#_append_footer_line(id, name) abort
+  let entry = '[' . a:id . '] ' . a:name
+  let fstart = -1
+  for i in range(1, line('$'))
+    if getline(i) =~# '^Attachments:\s*$' | let fstart = i | endif
+  endfor
+  if fstart < 0
+    call append(line('$'), ['', 'Attachments:', entry])
+  else
+    let last = fstart
+    let i = fstart + 1
+    while i <= line('$') && getline(i) =~# '^\[\d\+\] '
+      let last = i | let i += 1
+    endwhile
+    call append(last, entry)
+  endif
+endfunction
+
+" Split a compose body into (body without the Attachments: footer, [paths]).
+" Surviving footer ids are resolved against b:mail_attachments; the footer and
+" any blank lines before it are removed so they aren't sent as literal text.
+function! mail#_split_attachments(body_lines) abort
+  let id2path = {}
+  for a in get(b:, 'mail_attachments', [])
+    let id2path[a.id] = a.path
+  endfor
+  let fstart = -1
+  for i in range(len(a:body_lines))
+    if a:body_lines[i] =~# '^Attachments:\s*$' | let fstart = i | endif
+  endfor
+  if fstart < 0
+    return {'body': a:body_lines, 'paths': []}
+  endif
+  let paths = []
+  for l in a:body_lines[fstart + 1 :]
+    if l =~# '^\[\d\+\] '
+      let n = str2nr(matchstr(l, '^\[\zs\d\+\ze\]'))
+      if has_key(id2path, n) | call add(paths, id2path[n]) | endif
+    endif
+  endfor
+  let endx = fstart
+  while endx > 0 && a:body_lines[endx - 1] =~# '^\s*$'
+    let endx -= 1
+  endwhile
+  return {'body': endx > 0 ? a:body_lines[: endx - 1] : [], 'paths': paths}
+endfunction
+
+" :Attach {paths…} / <leader>A — attach file(s) by path (globs expanded).
+function! mail#attach(...) abort
+  if !exists('b:mail_compose_to')
+    echohl ErrorMsg | echom 'mail: not a compose buffer' | echohl None
+    return
+  endif
+  let args = copy(a:000)
+  if empty(args)
+    let p = input('Attach file: ', '', 'file')
+    redraw
+    if p ==# '' | return | endif
+    let args = [p]
+  endif
+  let added = 0
+  for a in args
+    let matches = glob(expand(a), 0, 1)
+    if empty(matches)
+      echohl WarningMsg | echom 'mail: no file matches: ' . a | echohl None
+      continue
+    endif
+    for m in matches
+      if mail#_register_attachment(m) | let added += 1 | endif
+    endfor
+  endfor
+  if added > 0 | echo 'Attached ' . added . ' file(s)' | endif
+endfunction
+
+" <leader>a — attach file(s) copied to the system clipboard.
+function! mail#attach_clipboard() abort
+  if !exists('b:mail_compose_to')
+    echohl ErrorMsg | echom 'mail: not a compose buffer' | echohl None
+    return
+  endif
+  let files = mail#_clipboard_files()
+  if empty(files)
+    echohl WarningMsg | echom 'mail: no file(s) in clipboard' | echohl None
+    return
+  endif
+  let added = 0
+  for f in files
+    if mail#_register_attachment(f) | let added += 1 | endif
+  endfor
+  if added > 0 | echo 'Attached ' . added . ' file(s) from clipboard' | endif
+endfunction
+
+" File paths currently on the system clipboard (Finder-copied files etc.).
+" macOS: one path via osascript (multi-file clipboard is unreliable there — use
+" :Attach for several). Linux: all of them via xclip's text/uri-list.
+function! mail#_clipboard_files() abort
+  if has('mac')
+    let script = "set out to \"\"\ntry\nset out to POSIX path of (the clipboard as «class furl»)\nend try\nreturn out"
+    let out = substitute(system('osascript', script), '\n\+$', '', '')
+    return out ==# '' ? [] : [out]
+  endif
+  let out = system('xclip -selection clipboard -t text/uri-list -o 2>/dev/null')
+  let files = []
+  for l in split(out, "\n")
+    let l = substitute(l, '\r$', '', '')
+    if l =~# '^file://'
+      call add(files, substitute(l, '^file://[^/]*', '', ''))
+    endif
+  endfor
+  return files
+endfunction
+
 " g:mail_from: Full From header, e.g. 'Your Name <you@gmail.com>'. Set in vimrc.
 let g:mail_from = get(g:, 'mail_from', '')
 
@@ -943,9 +1082,15 @@ function! mail#send() abort
     endif
   endfor
 
+  " Resolve attachments: pull surviving 'Attachments:' footer ids -> paths and
+  " strip the footer from the body (it's a compose-time affordance, not sent).
+  let split = mail#_split_attachments(body_lines)
+  let body_lines = split.body
+
   " Write compose file: From + Date prepended, then user headers + blank + body.
-  " mail_store.py send reads this and sends the body as plain text. A forward
-  " adds the X-Forward-Dir control header so send attaches the original .eml.
+  " mail_store.py send reads this and sends the body as plain text. Control
+  " headers (stripped by send): X-Forward-Dir / X-Forward-Inline for forwards,
+  " X-Mail-Attach (one per file) for attachments.
   let msg = []
   if g:mail_from !=# ''
     call add(msg, 'From: ' . g:mail_from)
@@ -958,6 +1103,9 @@ function! mail#send() abort
   if exists('b:mail_compose_fwd_inline')
     call add(msg, 'X-Forward-Inline: 1')
   endif
+  for p in split.paths
+    call add(msg, 'X-Mail-Attach: ' . p)
+  endfor
   let msg += [''] + body_lines
 
   let tmpfile = tempname()
