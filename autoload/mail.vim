@@ -1149,20 +1149,37 @@ function! mail#attach_clipboard() abort
 endfunction
 
 " File paths currently on the system clipboard (Finder-copied files etc.).
-" macOS: one path via osascript (multi-file clipboard is unreliable there — use
-" :Attach for several). Linux: all of them via xclip's text/uri-list.
+" macOS reads ALL file URLs from the pasteboard via the AppKit bridge (JXA) —
+" built-in, and handles multiple files (plain osascript «class furl» only ever
+" returns one). Linux uses wl-paste / xclip text/uri-list.
 function! mail#_clipboard_files() abort
   if has('mac')
-    let script = "set out to \"\"\ntry\nset out to POSIX path of (the clipboard as «class furl»)\nend try\nreturn out"
-    let out = substitute(system('osascript', script), '\n\+$', '', '')
-    return out ==# '' ? [] : [out]
+    let js = join([
+          \ "ObjC.import('AppKit');",
+          \ "var pb=$.NSPasteboard.generalPasteboard;",
+          \ "var cls=$.NSMutableArray.alloc.init; cls.addObject($.NSURL.class);",
+          \ "var arr=pb.readObjectsForClassesOptions(cls,$.NSDictionary.dictionary);",
+          \ "var out=[];",
+          \ "if(arr && !arr.isNil()){for(var i=0;i<arr.count;i++){var u=arr.objectAtIndex(i); if(u.isFileURL) out.push(ObjC.unwrap(u.path));}}",
+          \ "out.join('\\n');",
+          \ ], "\n")
+    let raw = system('osascript -l JavaScript', js)
+  elseif executable('wl-paste')
+    let raw = system('wl-paste --type text/uri-list 2>/dev/null')
+  elseif executable('xclip')
+    let raw = system('xclip -selection clipboard -t text/uri-list -o 2>/dev/null')
+  else
+    return []
   endif
-  let out = system('xclip -selection clipboard -t text/uri-list -o 2>/dev/null')
   let files = []
-  for l in split(out, "\n")
+  for l in split(raw, "\n")
     let l = substitute(l, '\r$', '', '')
     if l =~# '^file://'
-      call add(files, substitute(l, '^file://[^/]*', '', ''))
+      let l = substitute(l, '^file://[^/]*', '', '')                       " scheme+host
+      let l = substitute(l, '%\(\x\x\)', '\=nr2char(str2nr(submatch(1), 16))', 'g')  " %20 etc.
+    endif
+    if l !=# '' && filereadable(l)
+      call add(files, l)
     endif
   endfor
   return files

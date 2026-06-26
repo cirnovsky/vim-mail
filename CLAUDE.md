@@ -165,8 +165,9 @@ Each attachment shows as a line in a trailing `Attachments:` footer
 delete a footer line → that file isn't sent.
 - `:Attach {paths…}` (buffer-local, `-complete=file`, globs expanded) /
   `<leader>A` (prefilled `:Attach `) — attach by path. `<leader>a` — attach
-  clipboard file(s) (`mail#_clipboard_files`: macOS `osascript` single-file;
-  Linux `xclip` `text/uri-list` multi).
+  clipboard file(s) (`mail#_clipboard_files`: macOS reads all file URLs via the
+  AppKit bridge `osascript -l JavaScript` / `NSPasteboard.readObjectsForClasses`
+  — handles multiple; Linux `wl-paste`/`xclip` `text/uri-list`).
 - On `:w`, `mail#_split_attachments(body_lines)` resolves surviving footer ids →
   paths and **strips the footer from the sent body** (it's a compose affordance,
   not literal text); `mail#send` emits one `X-Mail-Attach: <path>` per file.

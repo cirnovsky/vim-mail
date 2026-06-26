@@ -64,6 +64,22 @@ try
   call assert_true(exists('b:mail_attachments') && len(b:mail_attachments) == 1,
         \ 'inline image tracked')
   bwipeout!
+
+  " 3. Multiple clipboard FILES → multiple paths (macOS regression for the old
+  " single-file «class furl» limitation). Sets two concrete file-url items.
+  if has('mac')
+    let f1 = tempname() | call writefile(['1'], f1)
+    let f2 = tempname() | call writefile(['2'], f2)
+    let setjs = "ObjC.import('AppKit'); var pb=$.NSPasteboard.generalPasteboard;"
+          \ . " pb.clearContents; var items=$.NSMutableArray.alloc.init; ['"
+          \ . f1 . "','" . f2 . "'].forEach(function(p){var it=$.NSPasteboardItem.alloc.init;"
+          \ . " it.setStringForType($.NSURL.fileURLWithPath(p).absoluteString,'public.file-url');"
+          \ . " items.addObject(it);}); pb.writeObjects(items);"
+    call system('osascript -l JavaScript', setjs)
+    call assert_equal(sort([f1, f2]), sort(mail#_clipboard_files()),
+          \ 'both copied files are returned (not just one)')
+    call delete(f1) | call delete(f2)
+  endif
 finally
   if has('mac') | call system('pbcopy', s:saved) | endif
 endtry
