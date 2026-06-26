@@ -290,6 +290,7 @@ Usage:
 | `T` | Clear all selection marks in one shot. |
 | `M` | Move marked (or current) messages to another mailbox; immediate, not staged. Accepts bare mailbox name (resolved under `g:mail_root`) or full path. Refuses (with an error) if a message with the same id already exists in the destination, rather than clobbering it. |
 | `r` | Reply — opens compose buffer prefilled with `To:`, `Subject:`, `In-Reply-To:`, `References:`, and `> `-quoted body. `:w` sends. |
+| `f` | Forward — compose buffer to a new recipient (`Fwd: …`, new thread); the whole original is attached as a `.eml` (`message/rfc822`) on `:w`, so all its attachments go along. |
 | `<leader>c` | New compose — blank `To:`/`Subject:` buffer. `:w` sends. |
 | `<leader>f` | Fetch — prompts for target mailbox (hint shown, field empty so you can type directly; bare name resolved under `g:mail_root`). Overrides MDA target via `fetchmail --mda`. Async; echoes count on completion, refreshes index in place. |
 | `R` | Refresh index listing from disk. |
@@ -335,6 +336,13 @@ it via `sendmail -t` (Postfix → Gmail relay). The sent copy is automatically
 ingested into `~/Mail/sent`. Threading is preserved by the
 `In-Reply-To`/`References` headers, not by MIME type.
 
+**Forwarding** (`f`) is forward-as-attachment: the compose buffer carries your
+note + a forwarded-header block, and `mail#send` passes an `X-Forward-Dir`
+control header so `send_mail` attaches the original's `raw.eml` as a
+`message/rfc822` part (wrapping the message into `multipart/mixed`). This is
+complete and lossless — the recipient gets the original with every attachment
+intact, as an openable `.eml`. New thread (no `In-Reply-To`/`References`).
+
 #### Thread reconstruction
 
 `<CR>` (full open) scans `meta` files across all subdirectories of
@@ -361,9 +369,9 @@ Current suites:
 
 | File | Covers |
 |---|---|
-| `tests/test_reply.py` | `mail_store.py` send (calls the real function): both reply classes (plain-text → order-preserving HTML; HTML → embedded `body.html` with cid images re-attached as multipart/related), `quote_text` clean sourcing, verbatim text/plain, `In-Reply-To`/`References` threading. |
+| `tests/test_reply.py` | `mail_store.py` send (calls the real function): both reply classes (plain-text → order-preserving HTML; HTML → embedded `body.html` with cid images re-attached as multipart/related), forward (original attached as `message/rfc822`), `quote_text` clean sourcing, verbatim text/plain, `In-Reply-To`/`References` threading. |
 | `tests/test_ingest.py` | Ingestion of a **real** complex message (`fixtures/embrace-the-chaos/raw.eml` — 2 tables, inline cid image, external image, businesscard link, `.ics`): attachments downloaded, links footnoted, body parsed, `quote_text` clean. |
-| `tests/test_reply_integration.py` | Full pipeline on that real message: CLI ingest → real headless `vim` replies (top-post) + sends (fake `sendmail`) → sent box verified (multipart/alternative, both tables embedded, cid image re-attached as multipart/related, external avatar, clean `>` quote, threading). |
+| `tests/test_reply_integration.py` | Full pipeline on that real message: CLI ingest → real headless `vim` replies (top-post) **and forwards** + sends (fake `sendmail`) → sent box verified — reply (multipart/alternative, both tables embedded, cid image re-attached as multipart/related, external avatar, clean `>` quote, threading) and forward (multipart/mixed with the original as `message/rfc822`, attachments intact, new thread). |
 | `tests/test_compose.vim` | `mail#reply()` compose buffer: To/Subject/In-Reply-To/References headers, attribution line, `> `-quoted body, no HTML. |
 
 Fixtures: real sample messages live one directory per case under

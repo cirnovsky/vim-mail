@@ -450,6 +450,11 @@ def send_mail(
 
     Threading is carried by the In-Reply-To / References headers, independent
     of MIME structure.
+
+    Forwarding: an 'X-Forward-Dir: <msg-dir>' control header in the compose block
+    (stripped, never sent) makes send attach that message's raw.eml as a
+    message/rfc822 part — a complete, lossless forward (all original headers,
+    body, and attachments), wrapping the message into multipart/mixed.
     """
     import subprocess
     import re as _re
@@ -459,10 +464,16 @@ def send_mail(
     body = body.rstrip("\n") + "\n"
 
     msg = EmailMessage(policy=policy.SMTP)
+    fwd_dir: Optional[str] = None
     for line in header_block.splitlines():
-        if ":" in line:
-            key, _, val = line.partition(":")
-            msg[key.strip()] = val.strip()
+        if ":" not in line:
+            continue
+        key, _, val = line.partition(":")
+        key, val = key.strip(), val.strip()
+        if key.lower() == "x-forward-dir":
+            fwd_dir = val            # control header, not part of the sent message
+        else:
+            msg[key] = val
     msg.set_content(body)
 
     if orig_dir is not None and (orig_dir / "body.html").exists():
@@ -512,6 +523,18 @@ def send_mail(
     else:
         # Plain-text original (or new compose) → faithful order-preserving render.
         msg.add_alternative(_plain_to_html(body), subtype="html")
+
+    # Forward: attach the whole original as a message/rfc822 part (the body above
+    # is the user's note + a short forwarded-header block). This carries the
+    # original's headers, body, and every attachment intact — lossless. Wraps the
+    # message into multipart/mixed.
+    if fwd_dir:
+        fwd_raw = Path(fwd_dir).expanduser() / "raw.eml"
+        if fwd_raw.exists():
+            orig_msg = email.message_from_bytes(fwd_raw.read_bytes(), policy=policy.default)
+            subj = orig_msg.get("Subject") or "message"
+            fname = "".join(c if c.isalnum() or c in " ._-" else "_" for c in str(subj))[:60]
+            msg.add_attachment(orig_msg, filename=f"{fname}.eml".strip())
 
     msg_bytes = msg.as_bytes()
     proc = subprocess.run(["sendmail", "-t"], input=msg_bytes, capture_output=True)

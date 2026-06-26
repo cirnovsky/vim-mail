@@ -25,6 +25,7 @@ Cases:
   7. Interleaved '>' lines keep order in BOTH plain and html (class 1)
   8. quote_text — clean quote source (sender text/plain, footnote-free html)
   9. class 2 re-attaches cid images as multipart/related parts
+  10. forward attaches the original as message/rfc822 (lossless)
 
 Run: python3 tests/test_reply.py
 """
@@ -37,7 +38,9 @@ import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 import mail_store  # noqa: E402
+import _fixtures   # noqa: E402
 
 PASS = 0
 FAIL = 0
@@ -282,6 +285,33 @@ with tempfile.TemporaryDirectory() as tmp:
         ok('image bytes preserved', cidparts[0].get_content() == png)
     ok('html alternative is multipart/related',
        any(p.get_content_type() == 'multipart/related' for p in msg.walk()))
+
+
+print('\n=== Case 10: forward attaches original as message/rfc822 ===')
+with tempfile.TemporaryDirectory() as tmp:
+    od = Path(tmp) / 'orig'
+    od.mkdir()
+    (od / 'raw.eml').write_bytes(_fixtures.raw('embrace-the-chaos'))
+    compose = build_compose(
+        {'To': 'new@example.com', 'Subject': 'Fwd: EMBRACE THE CHAOS',
+         'X-Forward-Dir': str(od)},
+        'FYI, see below.\n\n---------- Forwarded message ----------\nFrom: Test Sender\n'
+    )
+    msg = send_compose(compose)
+    ok('forward is multipart/mixed', msg.get_content_type() == 'multipart/mixed',
+       msg.get_content_type())
+    ok('X-Forward-Dir control header not leaked', msg.get('X-Forward-Dir') is None)
+    ok('new thread (no In-Reply-To)', msg.get('In-Reply-To') is None)
+    plains = [p.get_content() for p in msg.walk() if p.get_content_type() == 'text/plain']
+    ok('forward note in body', any('FYI, see below.' in t for t in plains))
+    rfc822 = [p for p in msg.walk() if p.get_content_type() == 'message/rfc822']
+    ok('original attached as message/rfc822', len(rfc822) == 1)
+    if rfc822:
+        inner = rfc822[0].get_content()
+        ok('forwarded subject preserved', inner.get('Subject') == 'EMBRACE THE CHAOS')
+        names = {q.get_filename() for q in inner.walk() if q.get_filename()}
+        ok('forwarded original keeps its attachments (lossless)',
+           '3A0EC103@F1D05308.F10D3E6A00000000.png' in names, str(names))
 
 
 print(f'\n{"="*40}')

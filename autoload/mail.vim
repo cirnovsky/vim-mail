@@ -861,6 +861,46 @@ function! mail#reply() abort
   let b:mail_compose_orig_dir = entry_dir
 endfunction
 
+" Forward the current message. Opens a compose buffer addressed to a new
+" recipient (To: empty), Subject 'Fwd: …', a forwarded-header block in the body
+" for the user's note. The whole original is attached as a .eml on :w (handled
+" by mail_store.py send via the X-Forward-Dir control header). New thread — no
+" In-Reply-To/References.
+function! mail#forward() abort
+  let idx = mail#_current_index()
+  if idx == -1
+    return
+  endif
+  let entry     = b:mail_entries[idx]
+  let meta      = entry.meta
+  let entry_dir = entry.dir
+  let subject   = meta.subject =~? '^fwd\?:' ? meta.subject : 'Fwd: ' . meta.subject
+
+  execute 'botright split'
+  enew
+  setlocal buftype=acwrite bufhidden=wipe noswapfile
+  setlocal filetype=mail-compose
+  execute 'silent! file ' . fnameescape('mail-compose://forward-' . localtime())
+
+  let hdr_lines = ['To: ', 'Subject: ' . subject, '']
+  let lines = copy(hdr_lines)
+  call add(lines, '')
+  call add(lines, '---------- Forwarded message ----------')
+  call add(lines, 'From: ' . meta.from)
+  call add(lines, 'Date: ' . meta.date)
+  call add(lines, 'Subject: ' . meta.subject)
+  if meta.to !=# ''
+    call add(lines, 'To: ' . meta.to)
+  endif
+  call setline(1, lines)
+  call cursor(len(hdr_lines) + 1, 1)
+  setlocal nomodified
+
+  let b:mail_compose_to      = ''
+  let b:mail_compose_subject = subject
+  let b:mail_compose_forward = entry_dir
+endfunction
+
 " g:mail_from: Full From header, e.g. 'Your Name <you@gmail.com>'. Set in vimrc.
 let g:mail_from = get(g:, 'mail_from', '')
 
@@ -888,13 +928,18 @@ function! mail#send() abort
   endfor
 
   " Write compose file: From + Date prepended, then user headers + blank + body.
-  " mail_store.py send reads this and sends the body as plain text.
+  " mail_store.py send reads this and sends the body as plain text. A forward
+  " adds the X-Forward-Dir control header so send attaches the original .eml.
   let msg = []
   if g:mail_from !=# ''
     call add(msg, 'From: ' . g:mail_from)
   endif
   call add(msg, 'Date: ' . strftime('%a, %d %b %Y %H:%M:%S %z'))
-  let msg += user_hdrs + [''] + body_lines
+  let msg += user_hdrs
+  if exists('b:mail_compose_forward')
+    call add(msg, 'X-Forward-Dir: ' . b:mail_compose_forward)
+  endif
+  let msg += [''] + body_lines
 
   let tmpfile = tempname()
   call writefile(msg, tmpfile)

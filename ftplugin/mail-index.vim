@@ -20,6 +20,7 @@ nmap     <buffer>          tt   t_
 nnoremap <buffer> <silent> T    :call mail#clear_marks()<CR>
 nnoremap <buffer> <silent> M    :call mail#move()<CR>
 nnoremap <buffer> <silent> r           :call mail#reply()<CR>
+nnoremap <buffer> <silent> f           :call mail#forward()<CR>
 nnoremap <buffer> <silent> R           :call mail#refresh()<CR>
 nnoremap <buffer> <silent> <leader>s   :call mail#search()<CR>
 nnoremap <buffer> <silent> <leader>c   :call mail#compose()<CR>

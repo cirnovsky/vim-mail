@@ -66,8 +66,38 @@ function! Test_reply_builds_plain_threading_buffer() abort
   call delete(root, 'rf')
 endfunction
 
+" mail#forward() builds a new-thread compose buffer: empty To, 'Fwd:' subject,
+" no In-Reply-To/References, a forwarded-header block in the body, and
+" b:mail_compose_forward pointing at the original (so :w attaches its .eml).
+function! Test_forward_builds_buffer() abort
+  let root = tempname() . '/Mail'
+  call s:mkmsg(root . '/inbox/20260101T000000Z_aabbccdd')
+  let g:mail_root = root
+  let g:mail_from = 'Me <me@example.com>'
+
+  call mail#open('inbox')
+  call cursor(1, 1)
+  call mail#forward()
+
+  let lines = getline(1, '$')
+  let text  = join(lines, "\n")
+  call assert_equal('To: ', lines[0], 'To is empty for forward')
+  call assert_match('\nSubject: Fwd: Hello', text, 'Subject gets Fwd: prefix')
+  call assert_notmatch('In-Reply-To', text, 'forward starts a new thread')
+  call assert_notmatch('References', text, 'no References on a forward')
+  call assert_match('---------- Forwarded message ----------', text, 'forwarded marker')
+  call assert_match('From: Alice <alice@example.com>', text, 'forwarded From shown')
+  call assert_equal('mail-compose', &filetype, 'compose buffer filetype')
+  call assert_true(exists('b:mail_compose_forward'), 'forward dir recorded')
+  call assert_match('20260101T000000Z_aabbccdd$', b:mail_compose_forward,
+        \ 'forward dir points at the original message')
+
+  bwipeout!
+  call delete(root, 'rf')
+endfunction
+
 let v:errors = []
-let s:tests = ['Test_reply_builds_plain_threading_buffer']
+let s:tests = ['Test_reply_builds_plain_threading_buffer', 'Test_forward_builds_buffer']
 for s:t in s:tests
   try
     call call(s:t, [])

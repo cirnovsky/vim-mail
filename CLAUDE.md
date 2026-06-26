@@ -139,6 +139,16 @@ Threading rides entirely on the `In-Reply-To`/`References` headers — independe
 of MIME type. `send_mail`'s `orig_dir` arg selects the class and supplies the
 HTML to embed (class 2); attribution is produced at compose time.
 
+**Forward (`f`) — forward-as-attachment**
+`mail#forward()` opens a compose buffer to a new recipient: empty `To:`, `Fwd: …`
+subject, **no** `In-Reply-To`/`References` (new thread), and a forwarded-header
+block in the body for the user's note. It sets `b:mail_compose_forward = <dir>`
+(not `orig_dir`, so the body is class 1). On `:w`, `mail#send()` emits a control
+header `X-Forward-Dir: <dir>`; `send_mail` strips it (never sent) and attaches
+`<dir>/raw.eml` as a `message/rfc822` part — a complete, lossless forward (all
+original headers, body, and attachments), wrapping the message into
+`multipart/mixed`. The `.eml` is named from the original subject.
+
 **`o` preview strips quotes**
 Lines starting with `>` and attribution lines filtered out.
 
@@ -163,6 +173,7 @@ Filtered headers + body + thread ancestors (each ancestor also filtered headers)
 | `T` | Clear all marks |
 | `M` | Move marked/current to another mailbox (immediate) |
 | `r` | Reply (opens compose buffer, `:w` sends) |
+| `f` | Forward (compose buffer to new recipient; original attached as `.eml` on `:w`) |
 | `<leader>c` | Compose new message |
 | `<leader>f` | Fetch mail (async fetchmail, refreshes index) |
 | `R` | Refresh from disk |
