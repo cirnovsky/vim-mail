@@ -34,8 +34,9 @@ function! mail#_prompt_mailbox(prompt, default) abort
   return g:test_move_dest
 endfunction
 
-" Stub the yes/no confirm so the staged-edit guard is testable in batch mode.
-let g:test_confirm = 1
+" Stub the 3-way confirm ('save'/'discard'/'cancel') so the staged-edit guard is
+" testable in batch mode.
+let g:test_confirm = 'discard'
 function! mail#_confirm(msg) abort
   return g:test_confirm
 endfunction
@@ -101,7 +102,7 @@ function! Test_move_guard_cancel() abort
   normal! dd                                  " stage a delete (not :w)
   call assert_true(&modified, 'dd staged a change')
 
-  let g:test_confirm = 0                       " user picks Cancel at the guard
+  let g:test_confirm = 'cancel'                " user picks Cancel at the guard
   call cursor(1, 1)
   call mail#move()
 
@@ -124,7 +125,7 @@ function! Test_move_guard_discard() abort
 
   call mail#open('inbox')
   setlocal modified                            " simulate staged edits
-  let g:test_confirm = 1                        " user picks Discard
+  let g:test_confirm = 'discard'                " user picks Discard
   call cursor(1, 1)
   call mail#move()
 
@@ -135,10 +136,40 @@ function! Test_move_guard_discard() abort
   call delete(root, 'rf')
 endfunction
 
+" --- Test: 'Save' commits staged edits, then the move proceeds ---
+function! Test_move_guard_save() abort
+  let root = tempname() . '/Mail'
+  call s:mkmsg(root . '/inbox/20260101T000000Z_aaaaaaaa')
+  call s:mkmsg(root . '/inbox/20260101T000000Z_bbbbbbbb')
+  call mkdir(root . '/archive', 'p')
+  let g:mail_root = root
+  let g:test_move_dest = 'archive'
+
+  call mail#open('inbox')
+  " buffer is reverse-sorted: line 1 = ...bbbb, line 2 = ...aaaa
+  call cursor(1, 1)
+  normal! dd                                    " stage delete of ...bbbb
+  call assert_true(&modified, 'dd staged a change')
+
+  let g:test_confirm = 'save'                    " commit staged, then move
+  call cursor(1, 1)                              " now ...aaaa
+  call mail#move()
+
+  " ...aaaa moved to archive; ...bbbb's staged delete committed to trash
+  call assert_true(isdirectory(root . '/archive/20260101T000000Z_aaaaaaaa'), 'target moved')
+  call assert_true(isdirectory(root . '/trash/20260101T000000Z_bbbbbbbb'),
+        \ 'staged delete was saved (to trash), not lost')
+  call assert_false(isdirectory(root . '/inbox/20260101T000000Z_aaaaaaaa'), 'A left inbox')
+  call assert_false(isdirectory(root . '/inbox/20260101T000000Z_bbbbbbbb'), 'B left inbox')
+
+  bwipeout!
+  call delete(root, 'rf')
+endfunction
+
 " --- runner ---
 let v:errors = []
 let s:tests = ['Test_move_collision_reports_error', 'Test_move_clean_succeeds',
-      \ 'Test_move_guard_cancel', 'Test_move_guard_discard']
+      \ 'Test_move_guard_cancel', 'Test_move_guard_discard', 'Test_move_guard_save']
 for s:t in s:tests
   try
     call call(s:t, [])

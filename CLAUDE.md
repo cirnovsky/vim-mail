@@ -78,8 +78,12 @@ disk), so `&modified` reliably means "staged, uncommitted changes exist."
 **Staged-edit guard.** `M` (move) and `<leader>f` (fetch) mutate disk and then
 `mail#refresh()`, which rebuilds the buffer from disk and would silently discard
 uncommitted staged edits. Both first call `mail#_ok_to_refresh(action)`: if
-`&modified`, it confirms via `mail#_confirm()` (Discard/Cancel) and aborts on
-cancel. `mail#_confirm` is a thin wrapper around `confirm()` so tests can stub it.
+`&modified`, it asks via `mail#_confirm()` — **Save / Discard / Cancel**. *Save*
+runs `mail#write()` (commits the staged edits, then proceeds); *Discard* proceeds
+and lets the refresh drop them; *Cancel* aborts. `mail#_confirm` returns
+`'save'`/`'discard'`/`'cancel'` and wraps `confirm()` so tests can stub it.
+Because *Save* rebuilds `b:mail_entries`, `mail#move()` captures its targets by id
+**before** the guard and re-resolves them after.
 (`R` and `:w`'s own refresh are not guarded — `R` is an explicit discard, and
 `:w` refreshes after committing.) *Future:* update the buffer incrementally
 (insert fetched lines / drop moved lines) so staged edits survive without a

@@ -432,29 +432,48 @@ function! mail#write() abort
   setlocal nomodified
 endfunction
 
-" Yes/No confirmation. Wrapped as its own function so tests can stub it (the
-" interactive confirm() can't be driven in batch mode). Returns 1 for yes.
+" Three-way confirm for the staged-edit guard. Returns 'save' | 'discard' |
+" 'cancel'. Wrapped as its own function so tests can stub it (interactive
+" confirm() can't be driven in batch mode).
 function! mail#_confirm(msg) abort
-  return confirm(a:msg, "&Discard\n&Cancel", 2) == 1
+  let n = confirm(a:msg, "&Save\n&Discard\n&Cancel", 3)
+  return n == 1 ? 'save' : (n == 2 ? 'discard' : 'cancel')
 endfunction
 
 " Disk actions that refresh the index (move, fetch) rebuild the buffer from disk,
 " discarding staged-but-unwritten edits (dd deletes, s/S read toggles). Guard
-" them: when the buffer has staged changes, confirm first. 1 = proceed, 0 = abort.
+" them: when the buffer has staged changes, ask. 1 = proceed (after optionally
+" writing them), 0 = abort. NOTE: 'Save' calls mail#write(), which rebuilds
+" b:mail_entries — callers that pre-resolved targets must re-resolve by id after.
 function! mail#_ok_to_refresh(action) abort
   if !&modified
     return 1
   endif
-  return mail#_confirm(a:action
-        \ . ' will discard staged changes not yet written (:w). Continue?')
+  let choice = mail#_confirm(a:action
+        \ . ' will refresh the index and lose unwritten changes. Save them first?')
+  if choice ==# 'save'
+    call mail#write()
+    return 1
+  endif
+  return choice ==# 'discard'
 endfunction
 
 function! mail#move() abort
-  let idxs = mail#_target_indexes()
-  if empty(idxs)
+  " Capture targets by id BEFORE the guard — a 'Save' there rebuilds b:mail_entries.
+  let target_ids = map(mail#_target_indexes(), 'b:mail_entries[v:val].id')
+  if empty(target_ids)
     return
   endif
   if !mail#_ok_to_refresh('Move')
+    return
+  endif
+  " Re-resolve ids → current indices (b:mail_entries may have just been rebuilt).
+  let id2idx = mail#_id_to_idx()
+  let idxs = []
+  for tid in target_ids
+    if has_key(id2idx, tid) | call add(idxs, id2idx[tid]) | endif
+  endfor
+  if empty(idxs)
     return
   endif
   let dest_dir = mail#_prompt_mailbox('Move to mailbox', '')
