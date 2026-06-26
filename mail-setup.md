@@ -280,7 +280,7 @@ Usage:
 | `o` | Quick preview — body only, quoted lines (`>`) stripped so only the current message's text is shown. Horizontal split, shared buffer reused on next `o`. Stages as read. |
 | `v` | Same as `o` but opens in a vertical split (direction only matters on first open). |
 | `gm` | Mimeview — opens `attachments/` in a reused netrw split. |
-| `x` | Open `body.html` in the default browser (mirrors netrw's `x` for system-default open). Falls back to "No HTML body" if the message has no HTML part. |
+| `x` | Open `body.html` in the default browser. Inline `cid:` images are inlined as `data:` URIs in a temporary copy (the stored file is untouched) so they render from `file://`; external (`http`) images load via the browser. Falls back to "No HTML body" if the message has no HTML part. |
 | `/` | Native Vim search over visible buffer text (From/Subject). |
 | `<leader>s` | Full-text search across all mailboxes under `g:mail_root` — prompts for a Vim regex, runs `vimgrep` over all `body.txt` files, opens quickfix with entries showing `From — Subject \| matched line`. Enter on a result opens that message's `body.txt` at the match. |
 | `dd`, `d3j`, `:g/pat/d`, … | **Staged delete** — lines removed from the buffer are only staged; nothing touches disk until `:w`. Undo (`u`) before `:w` cancels. |
@@ -403,7 +403,7 @@ Current suites:
 | File | Covers |
 |---|---|
 | `tests/test_reply.py` | `mail_store.py` send (calls the real function): both reply classes (plain-text → order-preserving HTML; HTML → embedded `body.html` with cid images re-attached as multipart/related), both forward modes (inline embed + re-attach; as-attachment `message/rfc822`), `quote_text` clean sourcing, verbatim text/plain, `In-Reply-To`/`References` threading. |
-| `tests/test_ingest.py` | Ingestion of a **real** complex message (`fixtures/embrace-the-chaos/raw.eml` — 2 tables, inline cid image, external image, businesscard link, `.ics`): attachments downloaded, links footnoted, body parsed, `quote_text` clean. |
+| `tests/test_ingest.py` | Ingestion of a **real** complex message (`fixtures/embrace-the-chaos/raw.eml` — 2 tables, inline cid image, external image, businesscard link, `.ics`): attachments downloaded, links footnoted, body parsed, `quote_text` clean, and `viewhtml`/`_inline_cid_data_uris` turning `cid:` into `data:` URIs while the stored `body.html` stays pristine. |
 | `tests/test_reply_integration.py` | Full pipeline on that real message: CLI ingest → real headless `vim` replies (top-post) **and forwards both ways** + sends (fake `sendmail`) → sent box verified — reply (multipart/alternative, tables embedded, cid as multipart/related, clean `>` quote, threading), inline forward (tables embedded, `.ics` re-attached, new thread), and as-attachment forward (`message/rfc822`, attachments intact). |
 | `tests/test_attach.py` | `mail_store.py` attachments + inline images: `X-Mail-Attach` → `multipart/mixed`, `X-Mail-Inline` → `[img N]` becomes a `cid` image (`multipart/related`), combined, content-type guessing, headers stripped, missing-file errors. |
 | `tests/test_compose.vim` | Compose buffers: `mail#reply()`, both forward modes, attachments (`Attachments:` footer + `mail#_split_attachments` resolve/strip), and inline images (`mail#_inline_images` resolution + `mail#paste_image` marker insert, clipboard grab stubbed). |

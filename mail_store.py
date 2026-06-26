@@ -31,7 +31,8 @@ USAGE = (
     "usage: mail_store.py migrate <mbox> <mailbox-dir>\n"
     "                   | ingest-stdin <mailbox-dir>\n"
     "                   | send <compose-file> [<orig-msg-dir> [<sent-dir>]]\n"
-    "                   | quote <msg-dir>"
+    "                   | quote <msg-dir>\n"
+    "                   | viewhtml <msg-dir>"
 )
 
 
@@ -417,6 +418,31 @@ def _sniff_image_type(data: bytes, fallback: str) -> str:
     return fallback if fallback.startswith("image/") else (fallback or "application/octet-stream")
 
 
+def _inline_cid_data_uris(html: str, raw: bytes) -> str:
+    """Rewrite src/background="cid:ID" in HTML to self-contained data: URIs from
+    the message's own inline parts — for *viewing* the stored body.html in a
+    browser, where cid: can't resolve. (Replies use multipart/related instead.)
+    cid refs with no matching part are left untouched."""
+    import base64
+    import re as _re
+    parts = _cid_parts(raw)
+    if not parts:
+        return html
+
+    def repl(m: "_re.Match") -> str:
+        attr, quote, cid = m.group(1), m.group(2), m.group(3).strip()
+        entry = parts.get(cid)
+        if entry is None:
+            return m.group(0)
+        ctype, data = entry
+        ctype = _sniff_image_type(data, ctype)
+        b64 = base64.b64encode(data).decode("ascii")
+        return f"{attr}={quote}data:{ctype};base64,{b64}{quote}"
+
+    return _re.sub(r'(src|background)=(["\'])cid:([^"\']+)\2', repl, html,
+                   flags=_re.IGNORECASE)
+
+
 def _embed_inline_images(msg: EmailMessage, imap: dict) -> None:
     """Turn '[img <id>]' markers in the HTML part into inline cid images.
 
@@ -686,6 +712,18 @@ def main(argv: Optional[list[str]] = None) -> None:
         raw_file = Path(rest[0]).expanduser() / "raw.eml"
         raw = raw_file.read_bytes() if raw_file.exists() else b""
         sys.stdout.write(quote_text(raw))
+    elif cmd == "viewhtml" and len(rest) == 1:
+        d = Path(rest[0]).expanduser()
+        html_file = d / "body.html"
+        if not html_file.exists():
+            sys.exit("no body.html")
+        html = html_file.read_text(encoding="utf-8", errors="replace")
+        raw_file = d / "raw.eml"
+        if raw_file.exists():
+            # cid: refs can't resolve from a file:// page — inline them as data:
+            # URIs so the image shows when opening the HTML in a browser.
+            html = _inline_cid_data_uris(html, raw_file.read_bytes())
+        sys.stdout.write(html)
     elif cmd == "send" and len(rest) in (1, 2, 3):
         orig = Path(rest[1]).expanduser() if len(rest) >= 2 and rest[1] else None
         sent = Path(rest[2]).expanduser() if len(rest) >= 3 and rest[2] else None

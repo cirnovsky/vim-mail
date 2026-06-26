@@ -75,6 +75,18 @@ with tempfile.TemporaryDirectory() as tmp:
     ok('meta has subject', 'Subject: EMBRACE THE CHAOS' in meta)
     ok('meta has Message-ID', MSGID in meta)
 
+    # --- viewhtml: cid images become data: URIs for browser viewing ---
+    stored_html = (msg_dir / 'body.html').read_text()
+    ok('stored body.html keeps cid: (pristine)', 'cid:' in stored_html)
+    viewed = mail_store._inline_cid_data_uris(stored_html, RAW)
+    ok('viewhtml inlines cid -> data: URI', 'data:' in viewed and ';base64,' in viewed)
+    ok('no cid: image ref left in viewed html', 'cid:3A0EC103' not in viewed)
+    import subprocess
+    cli = subprocess.run([sys.executable, str(HERE.parent / 'mail_store.py'),
+                          'viewhtml', str(msg_dir)], capture_output=True, text=True)
+    ok('viewhtml CLI emits data: URI', cli.returncode == 0 and 'data:image' in cli.stdout,
+       cli.stderr)
+
 
 print('\n=== quote_text on the real message is clean ===')
 q = mail_store.quote_text(RAW)

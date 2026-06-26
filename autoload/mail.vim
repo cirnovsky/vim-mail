@@ -348,12 +348,23 @@ function! mail#open_html() abort
   if idx == -1
     return
   endif
-  let html = b:mail_entries[idx].dir . '/body.html'
-  if !filereadable(html)
+  let dir = b:mail_entries[idx].dir
+  if !filereadable(dir . '/body.html')
     echo 'No HTML body'
     return
   endif
-  call job_start([has('mac') ? 'open' : 'xdg-open', html])
+  let opener = has('mac') ? 'open' : 'xdg-open'
+  " Build a viewable copy with cid: images inlined as data: URIs — cid refs
+  " don't resolve from a file:// page. External images load via the browser.
+  let py_cmd = substitute(g:mail_store_cmd, '\s\+ingest-stdin$', '', '')
+  let view = system(py_cmd . ' viewhtml ' . shellescape(dir))
+  if v:shell_error == 0 && view !=# ''
+    let tmp = tempname() . '.html'
+    call writefile(split(view, "\n", 1), tmp)
+    call job_start([opener, tmp])
+  else
+    call job_start([opener, dir . '/body.html'])
+  endif
 endfunction
 
 function! mail#mimeview() abort

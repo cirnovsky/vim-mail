@@ -218,7 +218,7 @@ Filtered headers + body + thread ancestors (each ancestor also filtered headers)
 | `o` | Preview: body with `>` quotes stripped, horizontal split, reused buffer |
 | `v` | Same as `o`, vertical split |
 | `gm` | Mimeview: open `attachments/` in netrw split |
-| `x` | Open `body.html` in browser (netrw convention) |
+| `x` | Open `body.html` in browser (inline `cid:` images shown via a temp data-URI copy) |
 | `/` | Native Vim search (From/Subject visible text) |
 | `<leader>s` | Full-text vimgrep across all `body.txt` files → quickfix |
 | `dd`, `d3j`, `:g/pat/d` | Staged delete — committed on `:w` |
@@ -315,8 +315,10 @@ the `Cc` field was added to `_write_meta` will have it in meta.
 - Thread reconstruction only works for messages whose `meta` file contains `Message-ID`.
 - Old messages moved via `M` before the `/` separator fix have a `history` prefix in
   their dir name — thread reconstruction won't find them by Message-ID.
-- CID inline images in the stored `body.html` still reference `cid:xxx` (not local
-  file paths) for *viewing*. When a class-2 reply embeds `body.html`, those parts are
-  re-attached as `multipart/related` cid parts so the quoted original keeps its inline
-  images across clients. Resolving cid at ingest time (for the viewer) is still
-  unimplemented.
+- The stored `body.html` keeps `cid:xxx` refs (pristine). Two consumers rewrite them
+  on the fly, never the stored file: **viewing** (`x` → `mail_store.py viewhtml` →
+  `_inline_cid_data_uris` rewrites `cid:`→`data:` URIs in a temp copy for the browser,
+  since `cid:` can't resolve from `file://`); **replying** (class-2 embed re-attaches
+  them as `multipart/related` parts for cross-client rendering). `data:`/external
+  (`http`) refs are passed through untouched by both. External images load per the
+  browser/remote — e.g. an oversized Wikimedia thumbnail URL the sender used may 400.
