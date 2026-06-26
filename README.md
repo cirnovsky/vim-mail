@@ -138,7 +138,7 @@ Then, in the inbox buffer:
 | `/` | Search From/Subject; `<leader>s` searches full text |
 | `dd` | Delete (staged) — `:w` to commit, `u` to undo |
 | `M` | Move to another folder |
-| `s` / `S` | Mark unread / read (staged) |
+| `s` / `S` | Mark read / unread (staged) |
 | `q` | Close |
 
 Deletes, reads, and moves are **staged** like normal edits — nothing touches

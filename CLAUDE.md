@@ -222,8 +222,8 @@ Filtered headers + body + thread ancestors (each ancestor also filtered headers)
 | `/` | Native Vim search (From/Subject visible text) |
 | `<leader>s` | Full-text vimgrep across all `body.txt` files → quickfix |
 | `dd`, `d3j`, `:g/pat/d` | Staged delete — committed on `:w` |
-| `s` | Mark targets unread (staged) |
-| `S` | Mark targets read (staged) |
+| `s` | Mark targets read (staged) |
+| `S` | Mark targets unread (staged) |
 | `t` / `tt` / `t3j` | Toggle selection mark `*` (operator-pending) |
 | `T` | Clear all marks |
 | `M` | Move marked/current to another mailbox (immediate; warns if staged edits would be discarded) |

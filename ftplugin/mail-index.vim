@@ -28,5 +28,5 @@ nnoremap <buffer> <silent> <leader>c   :call mail#compose()<CR>
 nnoremap <buffer> <silent> <leader>f   :call mail#fetch()<CR>
 nnoremap <buffer> <silent> q    :bwipeout<CR>
 
-nnoremap <buffer> <silent> s  :call mail#read(0)<CR>
-nnoremap <buffer> <silent> S  :call mail#read(1)<CR>
+nnoremap <buffer> <silent> s  :call mail#read(1)<CR>
+nnoremap <buffer> <silent> S  :call mail#read(0)<CR>

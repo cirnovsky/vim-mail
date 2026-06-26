@@ -284,8 +284,8 @@ Usage:
 | `/` | Native Vim search over visible buffer text (From/Subject). |
 | `<leader>s` | Full-text search across all mailboxes under `g:mail_root` — prompts for a Vim regex, runs `vimgrep` over all `body.txt` files, opens quickfix with entries showing `From — Subject \| matched line`. Enter on a result opens that message's `body.txt` at the match. |
 | `dd`, `d3j`, `:g/pat/d`, … | **Staged delete** — lines removed from the buffer are only staged; nothing touches disk until `:w`. Undo (`u`) before `:w` cancels. |
-| `s` | Mark targets unread — operates on all `*`-marked messages, or the current line if none marked. Staged; committed on `:w`. |
-| `S` | Mark targets read — same targeting as `s`. Staged; committed on `:w`. |
+| `s` | Mark targets read — operates on all `*`-marked messages, or the current line if none marked. Staged; committed on `:w`. |
+| `S` | Mark targets unread — same targeting as `s`. Staged; committed on `:w`. |
 | `t`, `tt`, `t3j`, `tG`, … | Toggle selection mark (`*`) — operator-pending: `tt` = current line, `t{motion}` = range. Used by `s`/`S`/`M`. Note: `:g/pat/norm tt` for pattern-based toggling (`:g/pat/t` is Vim's built-in copy). |
 | `T` | Clear all selection marks in one shot. |
 | `M` | Move marked (or current) messages to another mailbox; immediate, not staged. Accepts bare mailbox name (resolved under `g:mail_root`) or full path. Refuses (with an error) if a message with the same id already exists in the destination. If you have staged-but-unwritten edits (it refreshes the buffer afterward), it asks first — Save (commit them), Discard, or Cancel. |
