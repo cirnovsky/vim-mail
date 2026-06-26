@@ -451,10 +451,14 @@ def send_mail(
     Threading is carried by the In-Reply-To / References headers, independent
     of MIME structure.
 
-    Forwarding: an 'X-Forward-Dir: <msg-dir>' control header in the compose block
-    (stripped, never sent) makes send attach that message's raw.eml as a
-    message/rfc822 part — a complete, lossless forward (all original headers,
-    body, and attachments), wrapping the message into multipart/mixed.
+    Forwarding (control headers in the compose block, stripped and never sent):
+      - 'X-Forward-Inline': inline forward. orig_dir supplies the original; its
+        body is appended to the plain part (unquoted) and embedded in the HTML
+        part (class-2 path, with cid images), and its real attachments are
+        re-attached. A re-render (not byte-exact) — same as Gmail/Outlook inline.
+      - 'X-Forward-Dir: <msg-dir>': forward-as-attachment. Attaches that
+        message's raw.eml as a message/rfc822 part — byte-exact and lossless
+        (all original headers, body, attachments), wrapping into multipart/mixed.
     """
     import subprocess
     import re as _re
@@ -464,7 +468,8 @@ def send_mail(
     body = body.rstrip("\n") + "\n"
 
     msg = EmailMessage(policy=policy.SMTP)
-    fwd_dir: Optional[str] = None
+    fwd_dir: Optional[str] = None       # X-Forward-Dir → forward-as-attachment
+    fwd_inline = False                  # X-Forward-Inline → inline forward
     for line in header_block.splitlines():
         if ":" not in line:
             continue
@@ -472,9 +477,20 @@ def send_mail(
         key, val = key.strip(), val.strip()
         if key.lower() == "x-forward-dir":
             fwd_dir = val            # control header, not part of the sent message
+        elif key.lower() == "x-forward-inline":
+            fwd_inline = True        # control header, not part of the sent message
         else:
             msg[key] = val
-    msg.set_content(body)
+
+    # Inline forward: the buffer holds the user's note + a forwarded-header block;
+    # the original body is appended here (unquoted, like Gmail) rather than living
+    # in the buffer, so it isn't duplicated against the embedded HTML below.
+    plain_body = body
+    if fwd_inline and orig_dir is not None and (orig_dir / "raw.eml").exists():
+        orig_plain = quote_text((orig_dir / "raw.eml").read_bytes())
+        if orig_plain:
+            plain_body = body.rstrip("\n") + "\n\n" + orig_plain + "\n"
+    msg.set_content(plain_body)
 
     if orig_dir is not None and (orig_dir / "body.html").exists():
         # HTML original → embed it verbatim (lossless), user reply on top.
@@ -522,7 +538,32 @@ def send_mail(
                     )
     else:
         # Plain-text original (or new compose) → faithful order-preserving render.
-        msg.add_alternative(_plain_to_html(body), subtype="html")
+        # For an inline forward of a plain original, plain_body already includes
+        # the appended original text, so it renders in the HTML part too.
+        msg.add_alternative(_plain_to_html(plain_body), subtype="html")
+
+    # Inline forward: re-attach the original's real (non-inline) attachments so
+    # nothing is lost — cid images are already embedded above as related parts;
+    # everything else (PDFs, .ics, …) rides along here, wrapping into mixed.
+    if fwd_inline and orig_dir is not None and (orig_dir / "raw.eml").exists():
+        orig_msg = email.message_from_bytes(
+            (orig_dir / "raw.eml").read_bytes(), policy=policy.default
+        )
+        idx = 0
+        for part in orig_msg.iter_attachments():
+            if part.get("Content-ID"):
+                continue  # inline image — already embedded as a related part
+            idx += 1
+            content, forced_ext = _attachment_content(part)
+            name = _safe_filename(
+                part.get_filename() or (f"part_{idx}{forced_ext}" if forced_ext else None),
+                idx, part.get_content_type(),
+            )
+            maintype, _, subtype = part.get_content_type().partition("/")
+            if isinstance(content, str):
+                content = content.encode("utf-8", "replace")
+            msg.add_attachment(content, maintype=maintype,
+                               subtype=subtype or "octet-stream", filename=name)
 
     # Forward: attach the whole original as a message/rfc822 part (the body above
     # is the user's note + a short forwarded-header block). This carries the

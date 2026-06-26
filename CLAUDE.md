@@ -139,15 +139,24 @@ Threading rides entirely on the `In-Reply-To`/`References` headers — independe
 of MIME type. `send_mail`'s `orig_dir` arg selects the class and supplies the
 HTML to embed (class 2); attribution is produced at compose time.
 
-**Forward (`f`) — forward-as-attachment**
-`mail#forward()` opens a compose buffer to a new recipient: empty `To:`, `Fwd: …`
-subject, **no** `In-Reply-To`/`References` (new thread), and a forwarded-header
-block in the body for the user's note. It sets `b:mail_compose_forward = <dir>`
-(not `orig_dir`, so the body is class 1). On `:w`, `mail#send()` emits a control
-header `X-Forward-Dir: <dir>`; `send_mail` strips it (never sent) and attaches
-`<dir>/raw.eml` as a `message/rfc822` part — a complete, lossless forward (all
-original headers, body, and attachments), wrapping the message into
-`multipart/mixed`. The `.eml` is named from the original subject.
+**Forward — two modes (`f` inline, `F` as-attachment)**
+Both open a compose buffer (shared `s:_forward_buffer`): empty `To:`, `Fwd: …`
+subject, **no** `In-Reply-To`/`References` (new thread), a forwarded-header block
+for the user's note. `mail#send()` writes a control header (stripped by
+`send_mail`, never sent) per mode.
+
+- **`f` — inline** (`mail#forward()`): sets `b:mail_compose_orig_dir` +
+  `b:mail_compose_fwd_inline` → header `X-Forward-Inline: 1`. `send_mail`
+  **appends** the original body to the plain part (unquoted) via `quote_text`,
+  **embeds** `body.html` in the HTML part (class-2 path, cid images as related),
+  and **re-attaches** the original's non-cid attachments (PDF/.ics) into
+  `multipart/mixed`. The original is appended at send (not in the buffer) so it
+  isn't duplicated against the embedded HTML. A re-render — like Gmail/Outlook
+  inline forward, *not* byte-exact.
+- **`F` — as attachment** (`mail#forward_attach()`): sets
+  `b:mail_compose_forward` → header `X-Forward-Dir: <dir>`. `send_mail` attaches
+  `<dir>/raw.eml` as a `message/rfc822` part (named from the subject) —
+  byte-exact and lossless, opened by the recipient.
 
 **`o` preview strips quotes**
 Lines starting with `>` and attribution lines filtered out.
@@ -173,7 +182,8 @@ Filtered headers + body + thread ancestors (each ancestor also filtered headers)
 | `T` | Clear all marks |
 | `M` | Move marked/current to another mailbox (immediate) |
 | `r` | Reply (opens compose buffer, `:w` sends) |
-| `f` | Forward (compose buffer to new recipient; original attached as `.eml` on `:w`) |
+| `f` | Forward inline (original embedded in the body; re-render, like Gmail) |
+| `F` | Forward as attachment (original as a `message/rfc822` `.eml`; byte-exact) |
 | `<leader>c` | Compose new message |
 | `<leader>f` | Fetch mail (async fetchmail, refreshes index) |
 | `R` | Refresh from disk |

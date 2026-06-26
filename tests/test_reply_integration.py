@@ -44,8 +44,8 @@ def ok(name, cond, detail=''):
         FAIL += 1
 
 
-VIM = shutil.which('vim')
-if VIM is None:
+VIM = shutil.which('vim') or ''
+if not VIM:
     print('  SKIP  vim not found on PATH')
     sys.exit(0)
 
@@ -146,11 +146,11 @@ qall!
                cidparts[0].get_content_type().startswith('image/'),
                cidparts[0].get_content_type())
 
-    # 5. Forward the same message via vim; verify the sent box gets a complete
-    #    message/rfc822 forward (covers mail#send emitting X-Forward-Dir).
-    fstatus = STORE / 'fstatus'
-    fdriver = STORE / 'fdriver.vim'
-    fdriver.write_text(f"""
+    # 5. Forward the message via vim, both ways, and verify the sent box.
+    def run_forward(call, tag):
+        st = STORE / f'{tag}_status'
+        drv = STORE / f'{tag}_driver.vim'
+        drv.write_text(f"""
 set rtp+={REPO}
 let g:mail_python = '{PY}'
 let g:mail_store_py = '{REPO}/mail_store.py'
@@ -161,43 +161,55 @@ let g:mail_from = 'Me <me@example.com>'
 try
   call mail#open('inbox')
   call cursor(1, 1)
-  call mail#forward()
+  call {call}
   call setline(line('.'), 'Forwarding this.')
   call mail#send()
-  call writefile(['OK'], '{fstatus}')
+  call writefile(['OK'], '{st}')
 catch
-  call writefile(['ERR: ' . v:exception . ' @ ' . v:throwpoint], '{fstatus}')
+  call writefile(['ERR: ' . v:exception . ' @ ' . v:throwpoint], '{st}')
 endtry
 qall!
 """)
-    fvr = subprocess.run([VIM, '-u', 'NONE', '-N', '-es', '-S', str(fdriver)],
-                         env=env, capture_output=True)
-    fst = fstatus.read_text().strip() if fstatus.exists() else '(no status)'
-    ok('vim forward+send ran cleanly', fst == 'OK',
-       fst + ' | ' + fvr.stderr.decode('utf-8', 'replace'))
+        r = subprocess.run([VIM, '-u', 'NONE', '-N', '-es', '-S', str(drv)],
+                           env=env, capture_output=True)
+        s = st.read_text().strip() if st.exists() else '(no status)'
+        ok(f'vim {tag} forward+send ran cleanly', s == 'OK',
+           s + ' | ' + r.stderr.decode('utf-8', 'replace'))
 
-    # the forward is the sent message that is multipart/mixed with a rfc822 part
-    fwd = None
+    run_forward("mail#forward()", 'inline')
+    run_forward("mail#forward_attach()", 'attach')
+
+    # classify the sent messages: reply = alternative; inline forward = mixed,
+    # no rfc822; attach forward = mixed with a rfc822 part.
+    sent_all = []
     for path in sorted((STORE / 'sent').glob('*/raw.eml')):
-        mm = email.message_from_bytes(path.read_bytes(), policy=email.policy.default)
-        if mm.get_content_type() == 'multipart/mixed' and \
-           any(p.get_content_type() == 'message/rfc822' for p in mm.walk()):
-            fwd = mm
-            break
-    ok('forward landed in sent box as multipart/mixed', fwd is not None)
-    if fwd is not None:
-        ok('forward subject is Fwd:', (fwd.get('Subject') or '').startswith('Fwd:'),
-           repr(fwd.get('Subject')))
-        ok('forward is a new thread', fwd.get('In-Reply-To') is None)
-        ok('X-Forward-Dir not leaked', fwd.get('X-Forward-Dir') is None)
-        inner = [p for p in fwd.walk() if p.get_content_type() == 'message/rfc822'][0].get_content()
-        ok('forwarded original subject preserved', inner.get('Subject') == 'EMBRACE THE CHAOS')
-        names = {q.get_filename() for q in inner.walk() if q.get_filename()}
-        cts = [q.get_content_type() for q in inner.walk()]
-        ok('forwarded original keeps its image attachment',
-           '3A0EC103@F1D05308.F10D3E6A00000000.png' in names, str(names))
-        ok('forwarded original keeps its calendar (.ics)',
-           'text/calendar' in cts, str(cts))
+        sent_all.append(email.message_from_bytes(path.read_bytes(), policy=email.policy.default))
+    inline_fwd = next((mm for mm in sent_all
+                       if mm.get_content_type() == 'multipart/mixed'
+                       and not any(p.get_content_type() == 'message/rfc822' for p in mm.walk())), None)
+    attach_fwd = next((mm for mm in sent_all
+                       if any(p.get_content_type() == 'message/rfc822' for p in mm.walk())), None)
+
+    ok('inline forward landed in sent box', inline_fwd is not None)
+    if inline_fwd is not None:
+        ok('inline: Fwd: subject, new thread',
+           (inline_fwd.get('Subject') or '').startswith('Fwd:')
+           and inline_fwd.get('In-Reply-To') is None)
+        ok('inline: X-Forward-Inline not leaked', inline_fwd.get('X-Forward-Inline') is None)
+        ihtml = [p.get_content() for p in inline_fwd.walk() if p.get_content_type() == 'text/html']
+        ok('inline: embeds the original tables', ihtml and ihtml[0].count('<table') == 2)
+        ok('inline: re-attaches the original .ics',
+           any(p.get_content_type() == 'text/calendar' for p in inline_fwd.walk()))
+
+    ok('attach forward landed in sent box', attach_fwd is not None)
+    if attach_fwd is not None:
+        inner = [p for p in attach_fwd.walk()
+                 if p.get_content_type() == 'message/rfc822'][0].get_content()
+        ok('attach: forwarded original subject preserved',
+           inner.get('Subject') == 'EMBRACE THE CHAOS')
+        ok('attach: forwarded original keeps its attachments',
+           '3A0EC103@F1D05308.F10D3E6A00000000.png' in
+           {q.get_filename() for q in inner.walk() if q.get_filename()})
 finally:
     shutil.rmtree(STORE, ignore_errors=True)
 

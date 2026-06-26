@@ -25,7 +25,8 @@ Cases:
   7. Interleaved '>' lines keep order in BOTH plain and html (class 1)
   8. quote_text — clean quote source (sender text/plain, footnote-free html)
   9. class 2 re-attaches cid images as multipart/related parts
-  10. forward attaches the original as message/rfc822 (lossless)
+  10. forward-as-attachment (F): original as message/rfc822 (byte-exact)
+  11. inline forward (f): embed original + re-attach its files (re-render)
 
 Run: python3 tests/test_reply.py
 """
@@ -287,7 +288,7 @@ with tempfile.TemporaryDirectory() as tmp:
        any(p.get_content_type() == 'multipart/related' for p in msg.walk()))
 
 
-print('\n=== Case 10: forward attaches original as message/rfc822 ===')
+print('\n=== Case 10: forward-as-attachment (F) — original as message/rfc822 ===')
 with tempfile.TemporaryDirectory() as tmp:
     od = Path(tmp) / 'orig'
     od.mkdir()
@@ -312,6 +313,34 @@ with tempfile.TemporaryDirectory() as tmp:
         names = {q.get_filename() for q in inner.walk() if q.get_filename()}
         ok('forwarded original keeps its attachments (lossless)',
            '3A0EC103@F1D05308.F10D3E6A00000000.png' in names, str(names))
+
+
+print('\n=== Case 11: inline forward (f) — embed original + re-attach files ===')
+with tempfile.TemporaryDirectory() as tmp:
+    box = Path(tmp) / 'inbox'
+    box.mkdir()
+    od = mail_store.ingest_one(_fixtures.raw('embrace-the-chaos'), box)
+    compose = build_compose(
+        {'To': 'new@example.com', 'Subject': 'Fwd: EMBRACE THE CHAOS',
+         'X-Forward-Inline': '1'},
+        'FYI see below.\n---------- Forwarded message ----------\nFrom: Test Sender\n'
+    )
+    msg = send_compose(compose, orig_dir=od)
+    ok('inline forward is multipart/mixed', msg.get_content_type() == 'multipart/mixed',
+       msg.get_content_type())
+    ok('X-Forward-Inline not leaked', msg.get('X-Forward-Inline') is None)
+    ok('new thread (no In-Reply-To)', msg.get('In-Reply-To') is None)
+    plains = [p.get_content() for p in msg.walk() if p.get_content_type() == 'text/plain']
+    ok('plain: note + original text UNQUOTED',
+       any('FYI see below.' in t and '\n1314' in t and '> 1314' not in t for t in plains))
+    htmls = [p.get_content() for p in msg.walk() if p.get_content_type() == 'text/html']
+    ok('html: embeds the original tables', htmls and htmls[0].count('<table') == 2)
+    ok('html: note above the quote (no duplication)',
+       htmls and 0 <= htmls[0].find('FYI see below.') < htmls[0].find('<blockquote'))
+    ok('cid image embedded as multipart/related',
+       any(p.get_content_type() == 'multipart/related' for p in msg.walk()))
+    ok('original .ics re-attached as a real attachment',
+       any(p.get_content_type() == 'text/calendar' for p in msg.walk()))
 
 
 print(f'\n{"="*40}')

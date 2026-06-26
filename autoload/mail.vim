@@ -861,15 +861,11 @@ function! mail#reply() abort
   let b:mail_compose_orig_dir = entry_dir
 endfunction
 
-" Forward the current message. Opens a compose buffer addressed to a new
-" recipient (To: empty), Subject 'Fwd: …', a forwarded-header block in the body
-" for the user's note. The whole original is attached as a .eml on :w (handled
-" by mail_store.py send via the X-Forward-Dir control header). New thread — no
-" In-Reply-To/References.
-function! mail#forward() abort
+" Shared compose-buffer setup for both forward modes. Returns the entry dir.
+function! s:_forward_buffer(label) abort
   let idx = mail#_current_index()
   if idx == -1
-    return
+    return ''
   endif
   let entry     = b:mail_entries[idx]
   let meta      = entry.meta
@@ -880,7 +876,7 @@ function! mail#forward() abort
   enew
   setlocal buftype=acwrite bufhidden=wipe noswapfile
   setlocal filetype=mail-compose
-  execute 'silent! file ' . fnameescape('mail-compose://forward-' . localtime())
+  execute 'silent! file ' . fnameescape('mail-compose://' . a:label . '-' . localtime())
 
   let hdr_lines = ['To: ', 'Subject: ' . subject, '']
   let lines = copy(hdr_lines)
@@ -898,7 +894,27 @@ function! mail#forward() abort
 
   let b:mail_compose_to      = ''
   let b:mail_compose_subject = subject
-  let b:mail_compose_forward = entry_dir
+  return entry_dir
+endfunction
+
+" Forward inline (f): the original's body is shown inline below the forwarded
+" header block — HTML embedded (with images), plain appended unquoted, and the
+" original's real attachments re-attached. A re-render, like Gmail/Outlook.
+" The original body is appended at send time (mail_store.py), not put in the
+" buffer, so it isn't duplicated against the embedded HTML. New thread.
+function! mail#forward() abort
+  let dir = s:_forward_buffer('forward')
+  if dir ==# '' | return | endif
+  let b:mail_compose_orig_dir  = dir   " send embeds body.html + re-attaches files
+  let b:mail_compose_fwd_inline = 1
+endfunction
+
+" Forward as attachment (F): the whole original rides along as a message/rfc822
+" .eml — byte-exact and lossless, opened by the recipient. New thread.
+function! mail#forward_attach() abort
+  let dir = s:_forward_buffer('forward')
+  if dir ==# '' | return | endif
+  let b:mail_compose_forward = dir     " send attaches <dir>/raw.eml as rfc822
 endfunction
 
 " g:mail_from: Full From header, e.g. 'Your Name <you@gmail.com>'. Set in vimrc.
@@ -938,6 +954,9 @@ function! mail#send() abort
   let msg += user_hdrs
   if exists('b:mail_compose_forward')
     call add(msg, 'X-Forward-Dir: ' . b:mail_compose_forward)
+  endif
+  if exists('b:mail_compose_fwd_inline')
+    call add(msg, 'X-Forward-Inline: 1')
   endif
   let msg += [''] + body_lines
 
