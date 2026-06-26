@@ -1,0 +1,378 @@
+Delivered-To: recipient@example.com
+Received: from imap.gmail.com [172.253.118.108]	by Tests-MacBook-Air.local
+ with IMAP (fetchmail-6.6.5)	for <recipient@localhost> (single-drop); Fri, 26
+ Jun 2026 13:28:41 +0800 (+08)
+Received: by 2002:a05:612c:41d6:b0:5ab:35a:7935 with SMTP id
+ lf22csp2207596vqb; Thu, 25 Jun 2026 22:28:24 -0700 (PDT)
+X-Received: by 2002:a05:6a21:888e:b0:3bf:5539:f93 with SMTP id
+ adf61e73a8af0-3bf55391582mr615696637.38.1782451703832; Thu, 25 Jun 2026
+ 22:28:23 -0700 (PDT)
+ARC-Seal: i=1; a=rsa-sha256; t=1782451703; cv=none; d=google.com;
+ s=arc-20260327;
+ b=PsaiakWA/97kmxo6pmRv89DXS9MaYrfiltKh6cqg1RduVj1U8v5Ax5UgpIhcxCvCmt
+ FuZtvvLmiWjFgLoTLnEl3MdbFPIZBS0kf75i4HuMzBzafDf6rRXtxKT1rkY5OBCE0ZK7
+ jPyjV8PO7ARcds7pr27bwOIMWL4qYV+GABRO7T0LSfoXFGLyMzogcHQCdQCH5Rx96Np1
+ D9fk34kuEk9xaYFwMY25dpNI489ZZx5sE4v/ysWH0PL3QWyirJMTk9L9MeXZdQ1wKPsC
+ GjQL0g17tmdPQJ7hp1y+AbMNBZZgsidUDfWt6vlNzROzY7HhW4gz6xVuJDqqUF86NLGu 1PHA==
+ARC-Message-Signature: i=1; a=rsa-sha256; c=relaxed/relaxed; d=google.com;
+ s=arc-20260327;
+ h=message-id:date:content-transfer-encoding:mime-version:subject:to
+ :from:dkim-signature; bh=HCal2B7NrvgKKkPLAldBo+SAfZ6tdaUp+DbsaNymKjo=;
+ fh=EfPdt3Lgj2HCdSDdhpjNv9IynAvyjbWgo6jS1nmUmwc=;
+ b=WvJHi2qBKAnVO7dPXkE3E5HUr2EWtnJqdi6v4F/LW5pNCe2s/dIJj/BtGExl/DRxDn
+ RtNAZ2Vo6eyj4838N609ItBo+RMf1joV3JRBDmyRIQatgcU6P/8vyQ8JCT4AMsdcl4KC
+ fU6EJRAZnEB0v4TFJO8Wsk+0g48WoIJqJnrLvR8uUqV2ofmeJgRuNUOYT2YBKHkYdKKc
+ Z9Lbd4fiMGcP9L08TBz0k25Mk6PQnVBcxCq/whkufJQxRvRCkm7nsI8gPCzJpVEiOSF7
+ 9hXMfc/n6sn90BdR9Xvdd21rY2ySkCt8rHv8MX4O0VSGstEjKU+2VtyV76tvPKqUWgne NQEw==;
+ dara=google.com
+ARC-Authentication-Results: i=1; mx.google.com; dkim=pass header.i=@qq.com
+ header.s=s201512 header.b=B99vPwdC; spf=pass (google.com: domain of
+ sender@example.com designates 203.205.221.192 as permitted sender)
+ smtp.mailfrom=sender@example.com; dmarc=pass (p=QUARANTINE sp=QUARANTINE
+ dis=NONE) header.from=qq.com
+Return-Path: <sender@example.com>
+Received: from out203-205-221-192.mail.qq.com (out203-205-221-192.mail.qq.com.
+ [203.205.221.192]) by mx.google.com with UTF8SMTPS id
+ 41be03b00d2f7-c92bc9aa86asi7625451a12.238.2026.06.25.22.28.20 for
+ <recipient@example.com> (version=TLS1_2 cipher=ECDHE-ECDSA-CHACHA20-POLY1305
+ bits=256/256); Thu, 25 Jun 2026 22:28:23 -0700 (PDT)
+Received-SPF: pass (google.com: domain of sender@example.com designates
+ 203.205.221.192 as permitted sender) client-ip=203.205.221.192;
+Authentication-Results: mx.google.com; dkim=pass header.i=@qq.com
+ header.s=s201512 header.b=B99vPwdC; spf=pass (google.com: domain of
+ sender@example.com designates 203.205.221.192 as permitted sender)
+ smtp.mailfrom=sender@example.com; dmarc=pass (p=QUARANTINE sp=QUARANTINE
+ dis=NONE) header.from=qq.com
+DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/relaxed; d=qq.com; s=s201512;
+ t=1782451699; bh=HCal2B7NrvgKKkPLAldBo+SAfZ6tdaUp+DbsaNymKjo=;
+ h=From:To:Subject:Date;
+ b=B99vPwdCyW7V57gfqt/60bTujJIbdhbhBF3kn+wXAX8DyRl0VYm/VZsb5VDHTLVDH
+ ulVQOYyBhIi8hSDib9+YEjIaLLf17hFW+/8yNqZqebMcV2E3rQlPwVlj+R+v9HXoRK
+ vad/MkfFeIL27XY3fF8h78sv7ETlcgsMbs1Zbs9Q=
+X-QQ-XMRINFO: OD9hHCdaPRBwH5bRRRw8tsiH4UAatJqXfg==
+X-QQ-XMAILINFO: Ma5TUOZMoaO+I9/uGFuKwfiGvndbg+Y8kgkBOC1RKQWZzAde9pmE8eRdtx/ulX
+ pwwu56yxw7EVMZIBUtCsw1YTDIVRSpf0/MMHdDn2LiI+TZ4JHH53QcIzBnPWI9qCJw9bsp5uJQVz3
+ whioIHzWQKAUvCSDYgnbz+uqWzGNyNGD4O/iAuzyyFWUDRkZ4Z9KF9Y2iYBLNuP2CKlnHcgFLRgJN
+ CxsIgGq2oZBknvERm5uWlYrk6bNzXfG29jzHuHW1W4ASTOtPGZUclRX2Ggslb/Wm/5hM6p6J9Y0CE
+ Suw4/HRY3bhOmbmIMV3HE5oAQUAiUVYFz1RRz2GPRoJ8zuucaPEoqrjQItEMS9aw0GI9PKdADXAjO
+ svfPOxd6cu2DcnbVG+WPgFcchpDxyfNDm56z4MCGkJeepekPq24q2U/zmw25SivxtVB72BZI+EPJm
+ ZhRuFF0e7MLRa1iUUcXH/Gzl3wd3pUTva/W1OAgTfXO50mxX1pvsZU9WXGmjoZpu4ueazSdviroWs
+ yqL8e9ngX+0DGZMHkOfpkySwuQW61vVGhpChijx8bDFobTbbODtuFPFSXS+QxBgs/dBcrS2lhlDeK
+ xlbWbE/82ItSifPrm69nXBOtY+VdK4uJapsP9cyqMdpgP+3TGOEBOZ4gm6BGdwlZa0hWk3Mey8TeW
+ IOWbvc0UFAhcNZyqNb9niUUOXaxUDdCa4PQ8lBZ+5EB1wXTxqq/8iOfKTs6A7dRW60/ETvozXZgdG
+ 33yXBb+K26fkGtkWtYavx2rYEuaOq8xAKzB/kfQvCnY4a+rmCtqio9rdKVzVlI+iuc6ae6l5abztF
+ rQU5Ej0zI/KH9QoZcGk4sQZTjtE+vyhfCQLyzhFeCr3oezdt7OePFAHP0UZ/UB1mti/7TovD0ATBW
+ Jb1+GokbDns3OsvF4DkU/E1WvZmcSjm8338Ea8tGmpFMslxbL3oH/PCCaKroi3iWP4Euzmklk7jhb
+ wZSQCApYc2XxnCE9szMwGCLS3FisJ0vmdQ/F+W9LW4ed5oxGC0dWBgck8sHy3F/FLUYAmPR1i2EYW
+ 20YDhZsXE5dCBx3QtJ4ubKNp+4WelYFBKF75YaeeRvwDBVI+MKW8Ou9V7s6an5k7Xnfv8/82GnJSg
+ Tdr+ZnyA6VyROepiuTD+YxmPeLW7pExaukYDJE7lQ0V106c+nbtdyH+AC0Nua8W/6TKk8Wc1nzLlo
+ i67mC8otbGvm4q+MU4+3CrhNW9qkFOl+Moj6fN+E3VTQFO7lmCWeac=
+From: Test Sender <sender@example.com>
+To: Recipient <recipient@example.com>
+Subject: EMBRACE THE CHAOS
+Mime-Version: 1.0
+Content-Type: multipart/mixed;
+ boundary="----=_NextPart_6A3E0DF1_68D51960_4032F4E8"
+Content-Transfer-Encoding: 8Bit
+Date: Fri, 26 Jun 2026 13:28:17 +0800
+X-Priority: 3
+Message-ID: <embrace-the-chaos@example.com>
+X-QQ-MIME: TCMime 1.0 by Tencent
+X-Mailer: QQMail 2.x
+X-QQ-Mailer: QQMail 2.x
+X-QQ-mid: xmsezc15-0t1782451697tnmip46du
+
+This is a multi-part message in MIME format.
+
+------=_NextPart_6A3E0DF1_68D51960_4032F4E8
+Content-Type: multipart/alternative;
+	boundary="----=_NextPart_6A3E0DF1_68D51960_754716A7";
+
+------=_NextPart_6A3E0DF1_68D51960_754716A7
+Content-Type: text/plain; charset="utf-8"
+Content-Transfer-Encoding: 7bit
+MIME-Version: 1.0
+
+1314
+5
+456
+
+
+765
+75
+6576
+
+57
+r76
+67
+675
+75
+67
+
+
+
+675
+75
+75
+7657
+657
+57
+
+
+
+65
+75
+77
+57
+56
+57
+567
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Test&nbsp;Sender
+sender@example.com
+
+Example&nbsp;School
+Student
+12345678901
+
+------=_NextPart_6A3E0DF1_68D51960_754716A7
+Content-Type: text/html; charset="utf-8"
+Content-Transfer-Encoding: quoted-printable
+MIME-Version: 1.0
+
+<table style=3D"box-sizing: border-box; border-collapse: collapse; border-spa=
+cing: 0px; line-height: 1.43;" data-editing-info=3D"{&quot;topBorderColor&quo=
+t;:&quot;#ABABAB&quot;,&quot;bottomBorderColor&quot;:&quot;#ABABAB&quot;,&quo=
+t;verticalBorderColor&quot;:&quot;#ABABAB&quot;,&quot;hasHeaderRow&quot;:fals=
+e,&quot;hasFirstColumn&quot;:false,&quot;hasBandedRows&quot;:false,&quot;hasB=
+andedColumns&quot;:false,&quot;bgColorEven&quot;:null,&quot;bgColorOdd&quot;:=
+&quot;#ABABAB20&quot;,&quot;headerRowColor&quot;:&quot;#ABABAB&quot;,&quot;ta=
+bleBorderFormat&quot;:0,&quot;verticalAlign&quot;:&quot;middle&quot;}"><tbody=
+><tr><td style=3D"border-width: 1px; border-style: solid; border-color: rgb(1=
+71, 171, 171); padding: 4px 8px; vertical-align: middle; width: 70px; height:=
+ 22px; box-sizing: border-box;"><div style=3D"font-family: -apple-system, sys=
+tem-ui; font-size: 14px; color: rgb(0, 0, 0);">1314</div></td><td style=3D"bo=
+rder-width: 1px; border-style: solid; border-color: rgb(171, 171, 171); paddi=
+ng: 4px 8px; vertical-align: middle; width: 70px; height: 22px; box-sizing: b=
+order-box;"><div style=3D"font-family: -apple-system, system-ui; font-size: 1=
+4px; color: rgb(0, 0, 0);">5</div></td><td style=3D"border-width: 1px; border=
+-style: solid; border-color: rgb(171, 171, 171); padding: 4px 8px; vertical-a=
+lign: middle; width: 70px; height: 22px; box-sizing: border-box;"><div style=
+=3D"font-family: -apple-system, system-ui; font-size: 14px; color: rgb(0, 0, =
+0);">456</div></td><td style=3D"border-width: 1px; border-style: solid; borde=
+r-color: rgb(171, 171, 171); padding: 4px 8px; vertical-align: middle; width:=
+ 70px; height: 22px; box-sizing: border-box;"><div style=3D"font-family: -app=
+le-system, system-ui; font-size: 14px; color: rgb(0, 0, 0);"><br  /></div></t=
+d><td style=3D"border-width: 1px; border-style: solid; border-color: rgb(171,=
+ 171, 171); padding: 4px 8px; vertical-align: middle; width: 70px; height: 22=
+px; box-sizing: border-box;"><div style=3D"font-family: -apple-system, system=
+-ui; font-size: 14px; color: rgb(0, 0, 0);">765</div></td><td style=3D"border=
+-width: 1px; border-style: solid; border-color: rgb(171, 171, 171); padding: =
+4px 8px; vertical-align: middle; width: 70px; height: 22px; box-sizing: borde=
+r-box;"><div style=3D"font-family: -apple-system, system-ui; font-size: 14px;=
+ color: rgb(0, 0, 0);">75</div></td><td style=3D"border-width: 1px; border-st=
+yle: solid; border-color: rgb(171, 171, 171); padding: 4px 8px; vertical-alig=
+n: middle; width: 70px; height: 22px; box-sizing: border-box;"><div style=3D"=
+font-family: -apple-system, system-ui; font-size: 14px; color: rgb(0, 0, 0);"=
+>6576</div></td></tr><tr><td style=3D"border-width: 1px; border-style: solid;=
+ border-color: rgb(171, 171, 171); padding: 4px 8px; vertical-align: middle; =
+width: 70px; height: 22px; box-sizing: border-box;"><div style=3D"font-family=
+: -apple-system, system-ui; font-size: 14px; color: rgb(0, 0, 0);">57</div></=
+td><td style=3D"border-width: 1px; border-style: solid; border-color: rgb(171=
+, 171, 171); padding: 4px 8px; vertical-align: middle; width: 70px; height: 2=
+2px; box-sizing: border-box;"><div style=3D"font-family: -apple-system, syste=
+m-ui; font-size: 14px; color: rgb(0, 0, 0);">r76</div></td><td style=3D"borde=
+r-width: 1px; border-style: solid; border-color: rgb(171, 171, 171); padding:=
+ 4px 8px; vertical-align: middle; width: 70px; height: 22px; box-sizing: bord=
+er-box;"><div style=3D"font-family: -apple-system, system-ui; font-size: 14px=
+; color: rgb(0, 0, 0);">67</div></td><td style=3D"border-width: 1px; border-s=
+tyle: solid; border-color: rgb(171, 171, 171); padding: 4px 8px; vertical-ali=
+gn: middle; width: 70px; height: 22px; box-sizing: border-box;"><div style=3D=
+"font-family: -apple-system, system-ui; font-size: 14px; color: rgb(0, 0, 0);=
+">675</div></td><td style=3D"border-width: 1px; border-style: solid; border-c=
+olor: rgb(171, 171, 171); padding: 4px 8px; vertical-align: middle; width: 70=
+px; height: 22px; box-sizing: border-box;"><div style=3D"font-family: -apple-=
+system, system-ui; font-size: 14px; color: rgb(0, 0, 0);">75</div></td><td st=
+yle=3D"border-width: 1px; border-style: solid; border-color: rgb(171, 171, 17=
+1); padding: 4px 8px; vertical-align: middle; width: 70px; height: 22px; box-=
+sizing: border-box;"><div style=3D"font-family: -apple-system, system-ui; fon=
+t-size: 14px; color: rgb(0, 0, 0);">67</div></td><td style=3D"border-width: 1=
+px; border-style: solid; border-color: rgb(171, 171, 171); padding: 4px 8px; =
+vertical-align: middle; width: 70px; height: 22px; box-sizing: border-box;"><=
+div style=3D"font-family: -apple-system, system-ui; font-size: 14px; color: r=
+gb(0, 0, 0);"><br  /></div></td></tr><tr><td style=3D"border-width: 1px; bord=
+er-style: solid; border-color: rgb(171, 171, 171); padding: 4px 8px; vertical=
+-align: middle; width: 70px; height: 22px; box-sizing: border-box;"><div styl=
+e=3D"font-family: -apple-system, system-ui; font-size: 14px; color: rgb(0, 0,=
+ 0);">675</div></td><td style=3D"border-width: 1px; border-style: solid; bord=
+er-color: rgb(171, 171, 171); padding: 4px 8px; vertical-align: middle; width=
+: 70px; height: 22px; box-sizing: border-box;"><div style=3D"font-family: -ap=
+ple-system, system-ui; font-size: 14px; color: rgb(0, 0, 0);">75</div></td><t=
+d style=3D"border-width: 1px; border-style: solid; border-color: rgb(171, 171=
+, 171); padding: 4px 8px; vertical-align: middle; width: 70px; height: 22px; =
+box-sizing: border-box;"><div style=3D"font-family: -apple-system, system-ui;=
+ font-size: 14px; color: rgb(0, 0, 0);">75</div></td><td style=3D"border-widt=
+h: 1px; border-style: solid; border-color: rgb(171, 171, 171); padding: 4px 8=
+px; vertical-align: middle; width: 70px; height: 22px; box-sizing: border-box=
+;"><div style=3D"font-family: -apple-system, system-ui; font-size: 14px; colo=
+r: rgb(0, 0, 0);">7657</div></td><td style=3D"border-width: 1px; border-style=
+: solid; border-color: rgb(171, 171, 171); padding: 4px 8px; vertical-align: =
+middle; width: 70px; height: 22px; box-sizing: border-box;"><div style=3D"fon=
+t-family: -apple-system, system-ui; font-size: 14px; color: rgb(0, 0, 0);">65=
+7</div></td><td style=3D"border-width: 1px; border-style: solid; border-color=
+: rgb(171, 171, 171); padding: 4px 8px; vertical-align: middle; width: 70px; =
+height: 22px; box-sizing: border-box;"><div style=3D"font-family: -apple-syst=
+em, system-ui; font-size: 14px; color: rgb(0, 0, 0);">57</div></td><td style=
+=3D"border-width: 1px; border-style: solid; border-color: rgb(171, 171, 171);=
+ padding: 4px 8px; vertical-align: middle; width: 70px; height: 22px; box-siz=
+ing: border-box;"><div style=3D"font-family: -apple-system, system-ui; font-s=
+ize: 14px; color: rgb(0, 0, 0);"><br  /></div></td></tr><tr><td style=3D"bord=
+er-width: 1px; border-style: solid; border-color: rgb(171, 171, 171); padding=
+: 4px 8px; vertical-align: middle; width: 70px; height: 22px; box-sizing: bor=
+der-box;"><div style=3D"font-family: -apple-system, system-ui; font-size: 14p=
+x; color: rgb(0, 0, 0);">65</div></td><td style=3D"border-width: 1px; border-=
+style: solid; border-color: rgb(171, 171, 171); padding: 4px 8px; vertical-al=
+ign: middle; width: 70px; height: 22px; box-sizing: border-box;"><div style=
+=3D"font-family: -apple-system, system-ui; font-size: 14px; color: rgb(0, 0, =
+0);">75</div></td><td style=3D"border-width: 1px; border-style: solid; border=
+-color: rgb(171, 171, 171); padding: 4px 8px; vertical-align: middle; width: =
+70px; height: 22px; box-sizing: border-box;"><div style=3D"font-family: -appl=
+e-system, system-ui; font-size: 14px; color: rgb(0, 0, 0);">77</div></td><td =
+style=3D"border-width: 1px; border-style: solid; border-color: rgb(171, 171, =
+171); padding: 4px 8px; vertical-align: middle; width: 70px; height: 22px; bo=
+x-sizing: border-box;"><div style=3D"font-family: -apple-system, system-ui; f=
+ont-size: 14px; color: rgb(0, 0, 0);">57</div></td><td style=3D"border-width:=
+ 1px; border-style: solid; border-color: rgb(171, 171, 171); padding: 4px 8px=
+; vertical-align: middle; width: 70px; height: 22px; box-sizing: border-box;"=
+><div style=3D"font-family: -apple-system, system-ui; font-size: 14px; color:=
+ rgb(0, 0, 0);">56</div></td><td style=3D"border-width: 1px; border-style: so=
+lid; border-color: rgb(171, 171, 171); padding: 4px 8px; vertical-align: midd=
+le; width: 70px; height: 22px; box-sizing: border-box;"><div style=3D"font-fa=
+mily: -apple-system, system-ui; font-size: 14px; color: rgb(0, 0, 0);">57</di=
+v></td><td style=3D"border-width: 1px; border-style: solid; border-color: rgb=
+(171, 171, 171); padding: 4px 8px; vertical-align: middle; width: 70px; heigh=
+t: 22px; box-sizing: border-box;"><div style=3D"font-family: -apple-system, s=
+ystem-ui; font-size: 14px; color: rgb(0, 0, 0);">567</div></td></tr><tr><td s=
+tyle=3D"border-width: 1px; border-style: solid; border-color: rgb(171, 171, 1=
+71); padding: 4px 8px; vertical-align: middle; width: 70px; height: 22px; box=
+-sizing: border-box;"><div style=3D"font-family: -apple-system, system-ui; fo=
+nt-size: 14px; color: rgb(0, 0, 0);"><img src=3D"cid:3A0EC103@F1D05308.F10D3E=
+6A00000000.png" style=3D"vertical-align: bottom;max-width: 738.75px;"  /></di=
+v></td><td style=3D"border-width: 1px; border-style: solid; border-color: rgb=
+(171, 171, 171); padding: 4px 8px; vertical-align: middle; width: 70px; heigh=
+t: 22px; box-sizing: border-box;"><div style=3D"font-family: -apple-system, s=
+ystem-ui; font-size: 14px; color: rgb(0, 0, 0);"><br  /></div></td><td style=
+=3D"border-width: 1px; border-style: solid; border-color: rgb(171, 171, 171);=
+ padding: 4px 8px; vertical-align: middle; width: 70px; height: 22px; box-siz=
+ing: border-box;"><div style=3D"font-family: -apple-system, system-ui; font-s=
+ize: 14px; color: rgb(0, 0, 0);"><br  /></div></td><td style=3D"border-width:=
+ 1px; border-style: solid; border-color: rgb(171, 171, 171); padding: 4px 8px=
+; vertical-align: middle; width: 70px; height: 22px; box-sizing: border-box;"=
+><div style=3D"font-family: -apple-system, system-ui; font-size: 14px; color:=
+ rgb(0, 0, 0);"><br  /></div></td><td style=3D"border-width: 1px; border-styl=
+e: solid; border-color: rgb(171, 171, 171); padding: 4px 8px; vertical-align:=
+ middle; width: 70px; height: 22px; box-sizing: border-box;"><div style=3D"fo=
+nt-family: -apple-system, system-ui; font-size: 14px; color: rgb(0, 0, 0);"><=
+br  /></div></td><td style=3D"border-width: 1px; border-style: solid; border-=
+color: rgb(171, 171, 171); padding: 4px 8px; vertical-align: middle; width: 7=
+0px; height: 22px; box-sizing: border-box;"><div style=3D"font-family: -apple=
+-system, system-ui; font-size: 14px; color: rgb(0, 0, 0);"><br  /></div></td>=
+<td style=3D"border-width: 1px; border-style: solid; border-color: rgb(171, 1=
+71, 171); padding: 4px 8px; vertical-align: middle; width: 70px; height: 22px=
+; box-sizing: border-box;"><div style=3D"font-family: -apple-system, system-u=
+i; font-size: 14px; color: rgb(0, 0, 0);"><br  /></div></td></tr></tbody></ta=
+ble><div style=3D"line-height: 1.43;"><br  /></div><div contenteditable=3D"fa=
+lse"><div style=3D"display:block;width:150px;height:1px;border:medium;margin:=
+32px 0px 10px;background:rgb(230, 232, 235)"></div><div><a target=3D"_blank" =
+href=3D"https://wx.mail.qq.com/home/index?t=3Dreadmail_businesscard_midpage&a=
+mp;nocheck=3Dtrue&amp;name=3DTest+Sender&amp;icon=3Dhttp%3A%2F%2Fthirdqq.qlog=
+o.cn%2Fek_qqapp%2FANON&amp;mail=3Dsender%40example.com&amp;code=3DANON" style=
+=3D"text-decoration: underline;display:inline-block;text-decoration:none !imp=
+ortant;font-family:-apple-system,BlinkMacSystemFont,PingFang SC,Microsoft YaH=
+ei" class=3D"xm_write_card"><table cellspacing=3D"0" cellpadding=3D"0" style=
+=3D"table-layout:fixed;padding-right:20px"><tbody><tr valign=3D"top"><td styl=
+e=3D"width:40px;min-width:40px;padding-top:10px"><div style=3D"width:38px;hei=
+ght:38px;border:1px #FFF solid;border-radius:50%;margin:0;vertical-align:top;=
+box-shadow:0 0 10px 0 rgba(127,152,178,0.14)"><img style=3D"vertical-align: b=
+ottom;width:100%;height:100%;border-radius:50%;pointer-events:none" src=3D"ht=
+tp://thirdqq.qlogo.cn/ek_qqapp/ANON/0"  /></div></td><td style=3D"padding:10p=
+x 0 8px 10px"><div style=3D"font-size:14px;color:#33312E;line-height:20px;pad=
+ding-bottom:2px;margin:0;font-weight:500" class=3D"businessCard_name">Test&nb=
+sp;Sender</div><div style=3D"font-size:12px;color:#999896;line-height:18px;ma=
+rgin:0" class=3D"businessCard_mail">sender@example.com</div></td></tr><tr><td=
+ class=3D"businessCard_other_info" style=3D"padding-left:50px;padding-top:2px=
+;font-size:13px;color:#999896;line-height:20px" colspan=3D"2">Example&nbsp;Sc=
+hool</td></tr><tr><td class=3D"businessCard_other_info" style=3D"padding-left=
+:50px;padding-top:2px;font-size:13px;color:#999896;line-height:20px" colspan=
+=3D"2">Student</td></tr><tr><td class=3D"businessCard_other_info" style=3D"pa=
+dding-left:50px;padding-top:2px;font-size:13px;color:#999896;line-height:20px=
+" colspan=3D"2">12345678901</td></tr><tr><td class=3D"businessCard_other_info=
+" style=3D"padding-left:50px;padding-top:2px;font-size:13px;color:#999896;lin=
+e-height:20px" colspan=3D"2"></td></tr></tbody></table></a></div></div>
+
+------=_NextPart_6A3E0DF1_68D51960_754716A7--
+
+------=_NextPart_6A3E0DF1_68D51960_4032F4E8
+Content-Type: application/octet-stream;
+	name="3A0EC103@F1D05308.F10D3E6A00000000.png"
+Content-Transfer-Encoding: base64
+Content-ID: <3A0EC103@F1D05308.F10D3E6A00000000.png>
+
+iVBORw0KGgoAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+------=_NextPart_6A3E0DF1_68D51960_4032F4E8
+Content-Type: text/calendar; charset="utf-8"
+Content-Transfer-Encoding: quoted-printable
+MIME-Version: 1.0
+
+BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//Tencent Inc//MailApp Client//CN
+METHOD:REQUEST
+BEGIN:VTIMEZONE
+TZID:Asia/Singapore
+BEGIN:STANDARD
+TZOFFSETFROM:+0800
+TZOFFSETTO:+0800
+END:STANDARD
+END:VTIMEZONE
+BEGIN:VEVENT
+UID:00000000-0000-0000-0000-000000000000
+DTSTAMP:20260626T132816
+DTSTART:20260626T053000Z
+DTEND:20260626T063000Z
+CREATED:20260626T132816
+CLASS:PUBLIC
+ORGANIZER;CN=3D"Test Sender":MAILTO:sender@example.com
+ATTENDEE;CN=3D"recipient";CUTYPE=3DINDIVIDUAL;EMAIL=3Drecipient@example.com;P=
+ARTSTAT=3DNEEDS-ACTION;ROLE=3DREQ-PARTICIPANT:MAILTO:recipient@example.com
+STATUS:CONFIRMED
+SUMMARY:123
+BEGIN:VALARM
+TRIGGER:-PT15M
+ACTION:DISPLAY
+DESCRIPTION:Reminder
+X-WR-ALARMUID:00000000-0000-0000-0000-000000000000
+END:VALARM
+END:VEVENT
+END:VCALENDAR
+
+------=_NextPart_6A3E0DF1_68D51960_4032F4E8--
+
