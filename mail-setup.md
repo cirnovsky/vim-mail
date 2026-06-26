@@ -369,6 +369,13 @@ In a compose buffer:
 Both round-trip: the recipient's ingestion regenerates the `Attachments:` footer
 and `[img N]` markers from the MIME parts.
 
+> Clipboard support is **macOS-tested only**. macOS uses built-in `osascript`
+> (image data) and the AppKit/`NSPasteboard` bridge (file paths, multi-file). The
+> Linux paths (`wl-paste`/`xclip`) are written but **untested**, need those tools
+> installed, and may miss GNOME/Nautilus file copies (which use
+> `x-special/gnome-copied-files` rather than `text/uri-list`). Attach by path
+> (`:Attach`) works everywhere. Windows isn't supported.
+
 #### Thread reconstruction
 
 `<CR>` (full open) scans `meta` files across all subdirectories of

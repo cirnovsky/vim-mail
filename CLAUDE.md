@@ -249,6 +249,16 @@ Check with `:echo has('job') && has('timers') && has('lambda') && has('conceal')
 | `python3` | Running `mail_store.py` | `brew install python` or system |
 | `osascript` (macOS) / `wl-paste` / `xclip` (Linux) | Clipboard image data + file paths for `<leader>p`/`<leader>a` | macOS built-in; `wl-clipboard` / `xclip` on Linux |
 
+**Clipboard support is macOS-tested only.** The macOS paths (`mail#_clipboard_image`
+via `osascript` PNG coercion; `mail#_clipboard_files` via the AppKit/JXA
+`NSPasteboard` bridge) are built-in and have real integration tests
+(`test_clipboard.vim`). The **Linux paths are written but UNTESTED** and have
+known caveats: they need `xclip` (X11) or `wl-clipboard` (Wayland) installed; and
+`mail#_clipboard_files` reads `text/uri-list`, which **may miss GNOME/Nautilus
+copies** (those use `x-special/gnome-copied-files`). **Windows is unsupported**
+(no clipboard code). The clipboard test skips where no image-clipboard tool exists,
+so CI green ≠ Linux verified.
+
 Postfix must be configured to relay through Gmail SMTP — see `mail-setup.md` §1.
 
 ## vimrc
