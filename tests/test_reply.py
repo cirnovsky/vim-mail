@@ -24,7 +24,7 @@ Cases:
   6. New compose (no original) — multipart, html has no blockquote
   7. Interleaved '>' lines keep order in BOTH plain and html (class 1)
   8. quote_text — clean quote source (sender text/plain, footnote-free html)
-  9. class 2 inlines cid images as data: URIs
+  9. class 2 re-attaches cid images as multipart/related parts
 
 Run: python3 tests/test_reply.py
 """
@@ -252,28 +252,36 @@ ok('html-only quote is footnote-free', 'Links:' not in q2 and '[1]' not in q2, r
 ok('html-only keeps link text', 'this link' in q2)
 
 
-print('\n=== Case 9: class 2 inlines cid images as data URIs ===')
+print('\n=== Case 9: class 2 re-attaches cid images (multipart/related) ===')
 with tempfile.TemporaryDirectory() as tmp:
     d = Path(tmp) / '20260101T000000Z_cidcidci'
     d.mkdir()
     (d / 'meta').write_text('From: A <a@x>\nSubject: s\nMessage-ID: <c@test>\n')
     (d / 'body.html').write_text('<html><body>hi <img src="cid:logo123"></body></html>')
     (d / 'body.txt').write_text('hi')
-    png = b'\x89PNG\r\n\x1a\n'
+    png = b'\x89PNG\r\n\x1a\n' + b'\x00' * 16
+    # original labels the image application/octet-stream (like QQ) -> must sniff
     raw = (b'Subject: s\r\nMIME-Version: 1.0\r\n'
            b'Content-Type: multipart/related; boundary="B"\r\n\r\n'
            b'--B\r\nContent-Type: text/html\r\n\r\n'
            b'<html><body>hi <img src="cid:logo123"></body></html>\r\n'
-           b'--B\r\nContent-Type: image/png\r\nContent-ID: <logo123>\r\n'
+           b'--B\r\nContent-Type: application/octet-stream\r\nContent-ID: <logo123>\r\n'
            b'Content-Transfer-Encoding: base64\r\n\r\n'
            + base64.b64encode(png) + b'\r\n--B--\r\n')
     (d / 'raw.eml').write_bytes(raw)
     compose = build_compose({'To': 'a@x', 'Subject': 'Re: s'}, 'my reply\n\n> hi\n')
     msg = send_compose(compose, orig_dir=d)
     html = parts_of(msg)['text/html']
-    ok('cid replaced with data URI', 'data:image/png;base64,' in html)
-    ok('no literal cid: left', 'cid:logo123' not in html)
+    ok('html keeps cid: reference (not data:)', 'cid:logo123' in html and 'data:' not in html)
     ok('embedded original text present', 'hi <img' in html)
+    cidparts = [p for p in msg.walk() if (p.get('Content-ID') or '').strip('<>') == 'logo123']
+    ok('image re-attached as a related part', len(cidparts) == 1, str(len(cidparts)))
+    if cidparts:
+        ok('image content-type sniffed to image/png',
+           cidparts[0].get_content_type() == 'image/png', cidparts[0].get_content_type())
+        ok('image bytes preserved', cidparts[0].get_content() == png)
+    ok('html alternative is multipart/related',
+       any(p.get_content_type() == 'multipart/related' for p in msg.walk()))
 
 
 print(f'\n{"="*40}')

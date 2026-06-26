@@ -121,9 +121,12 @@ by **whether `orig_dir/body.html` exists**:
   **interleaved** posting all survive. Lossless — the quoted source is already
   plain text.
 - **Class 2 — HTML original (`body.html` exists)**: the original `body.html` is
-  **embedded verbatim** in a `<blockquote>` (cid images inlined as `data:` URIs by
-  `_inline_cid_images`), with the user's reply (the non-`>` lines) on top.
-  Top-posting, but the quoted original is reproduced without loss.
+  **embedded verbatim** in a `<blockquote>`, with the user's reply (the non-`>`
+  lines) on top. Inline `cid:` images are re-attached as `multipart/related`
+  parts (the html alternative becomes `multipart/related`; `_cid_parts` pulls the
+  bytes from the original `raw.eml`, `_sniff_image_type` gives them a real
+  `image/*` type) — universally rendered, unlike `data:` URIs which Outlook
+  blocks and Gmail strips. Top-posting, quoted original reproduced without loss.
 
 Quote sourcing: `mail#reply()` fills the compose buffer with the clean quote from
 `mail_store.py quote <dir>` (`quote_text`: the sender's own `text/plain`, or a
@@ -223,12 +226,14 @@ the `Cc` field was added to `_write_meta` will have it in meta.
 
 - Outgoing mail is multipart/alternative with two classes by original type: plain-text
   originals get an order-preserving HTML render (top/bottom/interleave all survive);
-  HTML originals get the original `body.html` embedded verbatim (cid→data: URIs),
-  top-posting. Plain part is always the verbatim composed body.
+  HTML originals get the original `body.html` embedded verbatim with inline images
+  re-attached as multipart/related cid parts, top-posting. Plain part is always the
+  verbatim composed body.
 - Thread reconstruction only works for messages whose `meta` file contains `Message-ID`.
 - Old messages moved via `M` before the `/` separator fix have a `history` prefix in
   their dir name — thread reconstruction won't find them by Message-ID.
 - CID inline images in the stored `body.html` still reference `cid:xxx` (not local
-  file paths) for *viewing*. When a class-2 reply embeds `body.html`, `_inline_cid_images`
-  rewrites those to `data:` URIs so the quoted original keeps its inline images.
-  Inlining at ingest time (for the viewer) is still unimplemented.
+  file paths) for *viewing*. When a class-2 reply embeds `body.html`, those parts are
+  re-attached as `multipart/related` cid parts so the quoted original keeps its inline
+  images across clients. Resolving cid at ingest time (for the viewer) is still
+  unimplemented.

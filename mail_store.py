@@ -378,20 +378,15 @@ def quote_text(raw: bytes) -> str:
     return ""
 
 
-def _inline_cid_images(html: str, raw: bytes) -> str:
-    """Replace src/background="cid:ID" in HTML with data: URIs built from the
-    message's own inline parts, so an embedded original keeps its images
-    instead of showing broken placeholders. cid refs with no matching part are
-    left untouched."""
-    import base64
-    import re as _re
+def _cid_parts(raw: bytes) -> dict[str, tuple[str, bytes]]:
+    """Map stripped Content-ID -> (content_type, bytes) for every inline part
+    of a message, so an embedded original's cid: images can be re-attached."""
     msg = email.message_from_bytes(raw, policy=policy.default)
-    by_cid: dict[str, tuple[str, bytes]] = {}
+    out: dict[str, tuple[str, bytes]] = {}
     for part in msg.walk():
         cid = part.get("Content-ID")
         if not cid:
             continue
-        stripped = cid.strip().strip("<>")
         try:
             payload = part.get_content()
         except Exception:
@@ -399,22 +394,27 @@ def _inline_cid_images(html: str, raw: bytes) -> str:
         if isinstance(payload, str):
             payload = payload.encode("utf-8", "replace")
         if isinstance(payload, (bytes, bytearray)):
-            by_cid[stripped] = (part.get_content_type(), bytes(payload))
-    if not by_cid:
-        return html
+            out[cid.strip().strip("<>")] = (part.get_content_type(), bytes(payload))
+    return out
 
-    def repl(m: "_re.Match") -> str:
-        attr, quote, cid = m.group(1), m.group(2), m.group(3).strip()
-        entry = by_cid.get(cid)
-        if entry is None:
-            return m.group(0)
-        ctype, data = entry
-        b64 = base64.b64encode(data).decode("ascii")
-        return f"{attr}={quote}data:{ctype};base64,{b64}{quote}"
 
-    return _re.sub(
-        r'(src|background)=(["\'])cid:([^"\']+)\2', repl, html, flags=_re.IGNORECASE
-    )
+def _sniff_image_type(data: bytes, fallback: str) -> str:
+    """Guess an image content-type from magic bytes. Senders (e.g. QQ) often
+    label inline images as application/octet-stream; a real image/* type helps
+    stricter clients render the cid reference."""
+    sigs = [
+        (b"\x89PNG\r\n\x1a\n", "image/png"),
+        (b"\xff\xd8\xff", "image/jpeg"),
+        (b"GIF87a", "image/gif"),
+        (b"GIF89a", "image/gif"),
+        (b"BM", "image/bmp"),
+    ]
+    for sig, ctype in sigs:
+        if data.startswith(sig):
+            return ctype
+    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return "image/webp"
+    return fallback if fallback.startswith("image/") else (fallback or "application/octet-stream")
 
 
 def send_mail(
@@ -442,15 +442,17 @@ def send_mail(
         interleaved posting all survive losslessly.
 
       - HTML original (orig_dir/body.html exists): the original HTML is embedded
-        verbatim in a <blockquote> (cid images inlined as data: URIs), with the
-        user's reply (the non-'>' lines) on top. Top-posting, but the quoted
-        original is reproduced without loss. The plain part still carries a '>'
-        text quote for plain-only readers.
+        verbatim in a <blockquote>, with the user's reply (the non-'>' lines) on
+        top. Inline cid: images are re-attached as multipart/related parts (the
+        html alternative becomes multipart/related), so they render in every
+        client — unlike data: URIs, which Outlook blocks and Gmail strips. The
+        plain part still carries a '>' text quote for plain-only readers.
 
     Threading is carried by the In-Reply-To / References headers, independent
     of MIME structure.
     """
     import subprocess
+    import re as _re
 
     compose_text = compose_path.read_text(encoding="utf-8")
     header_block, _, body = compose_text.partition("\n\n")
@@ -470,9 +472,6 @@ def send_mail(
             user_lines.pop()
         user_html = html_module.escape("\n".join(user_lines)).replace("\n", "<br>\n")
         orig_html = (orig_dir / "body.html").read_text(encoding="utf-8")
-        raw_file = orig_dir / "raw.eml"
-        if raw_file.exists():
-            orig_html = _inline_cid_images(orig_html, raw_file.read_bytes())
         html_body = (
             "<html><body>"
             f"<div>{user_html}</div>"
@@ -483,6 +482,33 @@ def send_mail(
             "</body></html>"
         )
         msg.add_alternative(html_body, subtype="html")
+        # Re-attach the original's inline (cid) images as multipart/related parts
+        # so they render everywhere (Outlook blocks data: URIs; Gmail strips
+        # them). Only the cids actually referenced in the HTML are attached, each
+        # given a real image/* content-type via magic-byte sniffing.
+        raw_file = orig_dir / "raw.eml"
+        if raw_file.exists():
+            parts = _cid_parts(raw_file.read_bytes())
+            refs = _re.findall(
+                r'(?:src|background)=["\']cid:([^"\']+)["\']',
+                orig_html, flags=_re.IGNORECASE,
+            )
+            payload = msg.get_payload()
+            html_part = payload[-1] if isinstance(payload, list) else payload
+            if isinstance(html_part, EmailMessage):
+                seen: set[str] = set()
+                for ref in refs:
+                    cid = ref.strip()
+                    if cid in seen or cid not in parts:
+                        continue
+                    seen.add(cid)
+                    ctype, data = parts[cid]
+                    ctype = _sniff_image_type(data, ctype)
+                    maintype, _, subtype = ctype.partition("/")
+                    html_part.add_related(
+                        data, maintype=maintype, subtype=subtype or "octet-stream",
+                        cid=f"<{cid}>",
+                    )
     else:
         # Plain-text original (or new compose) → faithful order-preserving render.
         msg.add_alternative(_plain_to_html(body), subtype="html")

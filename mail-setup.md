@@ -205,8 +205,9 @@ has a `body.html`):
   composed body (quoted runs → nested `<blockquote>`s, user text inline).
   Top/bottom/interleaved posting all survive losslessly.
 - **HTML original** → the original `body.html` is embedded verbatim in a
-  `<blockquote>` (inline `cid:` images rewritten to `data:` URIs), user reply on
-  top. Top-posting, but the quoted original is reproduced without loss.
+  `<blockquote>`, user reply on top. Inline `cid:` images are re-attached as
+  `multipart/related` parts (sniffed to a real `image/*` type) so they render in
+  every client. Top-posting, but the quoted original is reproduced without loss.
 
 The reply quote is sourced by `mail#reply()` from `mail_store.py quote <dir>` —
 the sender's own `text/plain` (clean), or a footnote-free html render for
@@ -360,9 +361,9 @@ Current suites:
 
 | File | Covers |
 |---|---|
-| `tests/test_reply.py` | `mail_store.py` send (calls the real function): both reply classes (plain-text → order-preserving HTML; HTML → embedded `body.html` with cid→data URIs), `quote_text` clean sourcing, verbatim text/plain, `In-Reply-To`/`References` threading. |
+| `tests/test_reply.py` | `mail_store.py` send (calls the real function): both reply classes (plain-text → order-preserving HTML; HTML → embedded `body.html` with cid images re-attached as multipart/related), `quote_text` clean sourcing, verbatim text/plain, `In-Reply-To`/`References` threading. |
 | `tests/test_ingest.py` | Ingestion of a **real** complex message (`fixtures/embrace-the-chaos/raw.eml` — 2 tables, inline cid image, external image, businesscard link, `.ics`): attachments downloaded, links footnoted, body parsed, `quote_text` clean. |
-| `tests/test_reply_integration.py` | Full pipeline on that real message: CLI ingest → real headless `vim` replies (top-post) + sends (fake `sendmail`) → sent box verified (multipart/alternative, both tables embedded, cid→data URI, external avatar, clean `>` quote, threading). |
+| `tests/test_reply_integration.py` | Full pipeline on that real message: CLI ingest → real headless `vim` replies (top-post) + sends (fake `sendmail`) → sent box verified (multipart/alternative, both tables embedded, cid image re-attached as multipart/related, external avatar, clean `>` quote, threading). |
 | `tests/test_compose.vim` | `mail#reply()` compose buffer: To/Subject/In-Reply-To/References headers, attribution line, `> `-quoted body, no HTML. |
 
 Fixtures: real sample messages live one directory per case under

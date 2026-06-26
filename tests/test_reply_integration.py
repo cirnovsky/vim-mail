@@ -130,11 +130,20 @@ qall!
         ok('html: reply on top, above the quote',
            0 <= html.find('Top posted reply.') < html.find('<blockquote'))
         ok('html: embeds both original tables', html.count('<table') == 2)
-        ok('html: cid image inlined as data: URI',
-           'data:' in html and ';base64,' in html)
-        ok('html: no literal cid: left', CID not in html)
+        ok('html: keeps cid: ref (not data:)', CID in html and 'data:' not in html)
         ok('html: external avatar URL preserved', 'thirdqq.qlogo.cn' in html)
         ok('html: businesscard link preserved', 'readmail_businesscard' in html)
+
+        # the inline image is re-attached as a multipart/related cid part
+        cidparts = [p for p in m.walk()
+                    if '3A0EC103' in (p.get('Content-ID') or '')]
+        ok('inline image re-attached by cid', len(cidparts) == 1, str(len(cidparts)))
+        ok('related structure present',
+           any(p.get_content_type() == 'multipart/related' for p in m.walk()))
+        if cidparts:
+            ok('re-attached image sniffed to image/*',
+               cidparts[0].get_content_type().startswith('image/'),
+               cidparts[0].get_content_type())
 finally:
     shutil.rmtree(STORE, ignore_errors=True)
 
