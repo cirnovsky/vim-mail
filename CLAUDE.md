@@ -72,7 +72,16 @@ Each line: `<id>\t<N|space><*|space> <date>  <from>  <subject>`
 - Read indicator differs from disk → `.read` file written or deleted
 
 Both are staged until `:w`. `u` reverts either before committing.
-`setlocal nomodified` at end of `mail#write()` so `:wq` works.
+`mail#refresh()` ends with `setlocal nomodified` (a just-refreshed buffer matches
+disk), so `&modified` reliably means "staged, uncommitted changes exist."
+
+**Staged-edit guard.** `M` (move) and `<leader>f` (fetch) mutate disk and then
+`mail#refresh()`, which rebuilds the buffer from disk and would silently discard
+uncommitted staged edits. Both first call `mail#_ok_to_refresh(action)`: if
+`&modified`, it confirms via `mail#_confirm()` (Discard/Cancel) and aborts on
+cancel. `mail#_confirm` is a thin wrapper around `confirm()` so tests can stub it.
+(`R` and `:w`'s own refresh are not guarded — `R` is an explicit discard, and
+`:w` refreshes after committing.)
 
 ## Key implementation details
 
@@ -211,7 +220,7 @@ Filtered headers + body + thread ancestors (each ancestor also filtered headers)
 | `S` | Mark targets read (staged) |
 | `t` / `tt` / `t3j` | Toggle selection mark `*` (operator-pending) |
 | `T` | Clear all marks |
-| `M` | Move marked/current to another mailbox (immediate) |
+| `M` | Move marked/current to another mailbox (immediate; warns if staged edits would be discarded) |
 | `r` | Reply (opens compose buffer, `:w` sends) |
 | `f` | Forward inline (original embedded in the body; re-render, like Gmail) |
 | `F` | Forward as attachment (original as a `message/rfc822` `.eml`; byte-exact) |
@@ -221,7 +230,7 @@ Compose-buffer keymaps (in `ftplugin/mail-compose.vim`): `:Attach {paths…}` /
 (inline clipboard image / image files). Screenshot data needs no extra tools on
 macOS (built-in `osascript`); Linux uses `wl-paste`/`xclip`.
 | `<leader>c` | Compose new message |
-| `<leader>f` | Fetch mail (async fetchmail, refreshes index) |
+| `<leader>f` | Fetch mail (async fetchmail, refreshes index; warns if staged edits would be discarded) |
 | `R` | Refresh from disk |
 | `q` | Close buffer |
 

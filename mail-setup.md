@@ -288,12 +288,12 @@ Usage:
 | `S` | Mark targets read — same targeting as `s`. Staged; committed on `:w`. |
 | `t`, `tt`, `t3j`, `tG`, … | Toggle selection mark (`*`) — operator-pending: `tt` = current line, `t{motion}` = range. Used by `s`/`S`/`M`. Note: `:g/pat/norm tt` for pattern-based toggling (`:g/pat/t` is Vim's built-in copy). |
 | `T` | Clear all selection marks in one shot. |
-| `M` | Move marked (or current) messages to another mailbox; immediate, not staged. Accepts bare mailbox name (resolved under `g:mail_root`) or full path. Refuses (with an error) if a message with the same id already exists in the destination, rather than clobbering it. |
+| `M` | Move marked (or current) messages to another mailbox; immediate, not staged. Accepts bare mailbox name (resolved under `g:mail_root`) or full path. Refuses (with an error) if a message with the same id already exists in the destination. If you have staged-but-unwritten edits (it refreshes the buffer afterward), it asks before discarding them. |
 | `r` | Reply — opens compose buffer prefilled with `To:`, `Subject:`, `In-Reply-To:`, `References:`, and `> `-quoted body. `:w` sends. |
 | `f` | Forward inline — original embedded in the body (HTML + images), its real attachments re-attached; `Fwd: …`, new thread. A re-render (like Gmail). |
 | `F` | Forward as attachment — the whole original rides along as a `message/rfc822` `.eml` (byte-exact, all attachments); `Fwd: …`, new thread. |
 | `<leader>c` | New compose — blank `To:`/`Subject:` buffer. `:w` sends. |
-| `<leader>f` | Fetch — prompts for target mailbox (hint shown, field empty so you can type directly; bare name resolved under `g:mail_root`). Overrides MDA target via `fetchmail --mda`. Async; echoes count on completion, refreshes index in place. |
+| `<leader>f` | Fetch — prompts for target mailbox (hint shown, field empty so you can type directly; bare name resolved under `g:mail_root`). Overrides MDA target via `fetchmail --mda`. Async; echoes count on completion, refreshes index in place. Asks first if staged-but-unwritten edits would be discarded by the refresh. |
 | `R` | Refresh index listing from disk. |
 | `q` | Close the index buffer. |
 
@@ -412,7 +412,7 @@ Current suites:
 Fixtures: real sample messages live one directory per case under
 `tests/fixtures/<case>/` (each holds a `raw.eml` and any static assets);
 `tests/_fixtures.py` (`raw(case)`) loads them. Not run as tests themselves.
-| `tests/test_move.vim` | `mail#move()`: clean move succeeds; a collision (id already in destination) reports an error and leaves the message in place instead of silently failing. |
+| `tests/test_move.vim` | `mail#move()`: clean move succeeds; collision reports an error and keeps the message; and the staged-edit guard — cancelling aborts the move (keeping pending edits), confirming lets it proceed. |
 
 ### Headless Vim test convention
 

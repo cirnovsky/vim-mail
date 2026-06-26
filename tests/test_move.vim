@@ -34,6 +34,12 @@ function! mail#_prompt_mailbox(prompt, default) abort
   return g:test_move_dest
 endfunction
 
+" Stub the yes/no confirm so the staged-edit guard is testable in batch mode.
+let g:test_confirm = 1
+function! mail#_confirm(msg) abort
+  return g:test_confirm
+endfunction
+
 " --- Test: move onto an existing id reports an error and keeps the message ---
 function! Test_move_collision_reports_error() abort
   let root = tempname() . '/Mail'
@@ -81,9 +87,58 @@ function! Test_move_clean_succeeds() abort
   call delete(root, 'rf')
 endfunction
 
+" --- Test: with staged (unwritten) edits, cancelling the guard aborts move ---
+function! Test_move_guard_cancel() abort
+  let root = tempname() . '/Mail'
+  call s:mkmsg(root . '/inbox/20260101T000000Z_aaaaaaaa')
+  call s:mkmsg(root . '/inbox/20260101T000000Z_bbbbbbbb')
+  call mkdir(root . '/archive', 'p')
+  let g:mail_root = root
+  let g:test_move_dest = 'archive'
+
+  call mail#open('inbox')
+  call assert_false(&modified, 'fresh buffer is unmodified after open')
+  normal! dd                                  " stage a delete (not :w)
+  call assert_true(&modified, 'dd staged a change')
+
+  let g:test_confirm = 0                       " user picks Cancel at the guard
+  call cursor(1, 1)
+  call mail#move()
+
+  call assert_equal([], glob(root . '/archive/*', 0, 1), 'nothing moved (cancelled)')
+  call assert_true(isdirectory(root . '/inbox/20260101T000000Z_aaaaaaaa'), 'A kept')
+  call assert_true(isdirectory(root . '/inbox/20260101T000000Z_bbbbbbbb'), 'B kept')
+  call assert_true(&modified, 'staged delete still pending after cancel')
+
+  bwipeout!
+  call delete(root, 'rf')
+endfunction
+
+" --- Test: confirming the guard (Discard) lets the move proceed ---
+function! Test_move_guard_discard() abort
+  let root = tempname() . '/Mail'
+  call s:mkmsg(root . '/inbox/20260101T000000Z_cccccccc')
+  call mkdir(root . '/archive', 'p')
+  let g:mail_root = root
+  let g:test_move_dest = 'archive'
+
+  call mail#open('inbox')
+  setlocal modified                            " simulate staged edits
+  let g:test_confirm = 1                        " user picks Discard
+  call cursor(1, 1)
+  call mail#move()
+
+  call assert_true(isdirectory(root . '/archive/20260101T000000Z_cccccccc'),
+        \ 'move proceeds when guard is confirmed')
+
+  bwipeout!
+  call delete(root, 'rf')
+endfunction
+
 " --- runner ---
 let v:errors = []
-let s:tests = ['Test_move_collision_reports_error', 'Test_move_clean_succeeds']
+let s:tests = ['Test_move_collision_reports_error', 'Test_move_clean_succeeds',
+      \ 'Test_move_guard_cancel', 'Test_move_guard_discard']
 for s:t in s:tests
   try
     call call(s:t, [])

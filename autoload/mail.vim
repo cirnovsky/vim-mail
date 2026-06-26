@@ -112,7 +112,11 @@ function! mail#refresh() abort
     call setline(1, lines)
   endif
   let &undolevels = ul
+  " A just-refreshed buffer matches disk → no staged changes. Clear &modified
+  " synchronously (the _sync_modified timer is async and may not have run yet,
+  " e.g. in headless -es mode), so the staged-edit guard reads it reliably.
   call mail#_sync_modified()
+  setlocal nomodified
 endfunction
 
 function! mail#_read_meta(dir) abort
@@ -428,9 +432,29 @@ function! mail#write() abort
   setlocal nomodified
 endfunction
 
+" Yes/No confirmation. Wrapped as its own function so tests can stub it (the
+" interactive confirm() can't be driven in batch mode). Returns 1 for yes.
+function! mail#_confirm(msg) abort
+  return confirm(a:msg, "&Discard\n&Cancel", 2) == 1
+endfunction
+
+" Disk actions that refresh the index (move, fetch) rebuild the buffer from disk,
+" discarding staged-but-unwritten edits (dd deletes, s/S read toggles). Guard
+" them: when the buffer has staged changes, confirm first. 1 = proceed, 0 = abort.
+function! mail#_ok_to_refresh(action) abort
+  if !&modified
+    return 1
+  endif
+  return mail#_confirm(a:action
+        \ . ' will discard staged changes not yet written (:w). Continue?')
+endfunction
+
 function! mail#move() abort
   let idxs = mail#_target_indexes()
   if empty(idxs)
+    return
+  endif
+  if !mail#_ok_to_refresh('Move')
     return
   endif
   let dest_dir = mail#_prompt_mailbox('Move to mailbox', '')
@@ -1296,6 +1320,9 @@ let g:mail_store_cmd = get(g:, 'mail_store_cmd',
 function! mail#fetch() abort
   if s:fetch_job isnot v:null && job_status(s:fetch_job) ==# 'run'
     echo 'A fetch is already in progress'
+    return
+  endif
+  if !mail#_ok_to_refresh('Fetch')
     return
   endif
   let default_dir = exists('b:mail_dir') ? b:mail_dir : mail#_resolve_mailbox('inbox')
