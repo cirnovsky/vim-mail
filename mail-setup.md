@@ -359,7 +359,8 @@ In a compose buffer:
   footer is resolved to paths and stripped from the sent body, and each file is
   added as a `multipart/mixed` part (content-type from the extension).
 - **Inline images** — `<leader>p` pastes an image from the clipboard: a screenshot
-  (raw image data, needs `pngpaste`/`xclip`) or copied image file(s). It inserts an
+  (raw image data — built-in `osascript` on macOS, no extra tools; `wl-paste`/
+  `xclip` on Linux) or copied image file(s). It inserts an
   `[img N]` marker at the cursor (all-or-nothing — refuses if any clipboard file
   isn't an image). On `:w`, each `[img N]` becomes an inline `cid` image
   (`multipart/related`) in the HTML part; the plain part keeps the literal
@@ -398,7 +399,8 @@ Current suites:
 | `tests/test_ingest.py` | Ingestion of a **real** complex message (`fixtures/embrace-the-chaos/raw.eml` — 2 tables, inline cid image, external image, businesscard link, `.ics`): attachments downloaded, links footnoted, body parsed, `quote_text` clean. |
 | `tests/test_reply_integration.py` | Full pipeline on that real message: CLI ingest → real headless `vim` replies (top-post) **and forwards both ways** + sends (fake `sendmail`) → sent box verified — reply (multipart/alternative, tables embedded, cid as multipart/related, clean `>` quote, threading), inline forward (tables embedded, `.ics` re-attached, new thread), and as-attachment forward (`message/rfc822`, attachments intact). |
 | `tests/test_attach.py` | `mail_store.py` attachments + inline images: `X-Mail-Attach` → `multipart/mixed`, `X-Mail-Inline` → `[img N]` becomes a `cid` image (`multipart/related`), combined, content-type guessing, headers stripped, missing-file errors. |
-| `tests/test_compose.vim` | Compose buffers: `mail#reply()`, both forward modes, attachments (`Attachments:` footer + `mail#_split_attachments` resolve/strip), and inline images (`mail#_inline_images` resolution + `mail#paste_image` marker insert). |
+| `tests/test_compose.vim` | Compose buffers: `mail#reply()`, both forward modes, attachments (`Attachments:` footer + `mail#_split_attachments` resolve/strip), and inline images (`mail#_inline_images` resolution + `mail#paste_image` marker insert, clipboard grab stubbed). |
+| `tests/test_clipboard.vim` | REAL clipboard integration: puts a PNG on the system clipboard and verifies the unstubbed `mail#_clipboard_image` captures it + `mail#paste_image` inserts a marker end to end. Skips where no image-clipboard tool exists; restores the text clipboard on macOS. |
 
 Fixtures: real sample messages live one directory per case under
 `tests/fixtures/<case>/` (each holds a `raw.eml` and any static assets);

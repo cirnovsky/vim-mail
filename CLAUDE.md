@@ -176,7 +176,8 @@ delete a footer line → that file isn't sent.
 
 **Inline images (compose buffer)** — `<leader>p`. `mail#paste_image()` grabs an
 image from the clipboard: raw image *data* (screenshot) via
-`mail#_clipboard_image` (`pngpaste`/`xclip`), else copied image *file(s)*
+`mail#_clipboard_image` (built-in `osascript` on macOS — coerces the clipboard
+to PNG, no extra tools; `wl-paste`/`xclip` on Linux), else copied image *file(s)*
 (`mail#_clipboard_files`). All-or-nothing: if any clipboard file isn't an image,
 it warns and adds nothing. Each image is registered inline (`{id, path, inline:1}`)
 and inserts an `[img id]` marker at the cursor (the marker lives in the body, not
@@ -216,8 +217,8 @@ Filtered headers + body + thread ancestors (each ancestor also filtered headers)
 
 Compose-buffer keymaps (in `ftplugin/mail-compose.vim`): `:Attach {paths…}` /
 `<leader>A` (attach by path), `<leader>a` (attach clipboard files), `<leader>p`
-(inline clipboard image / image files). `<leader>p` needs `pngpaste` (macOS) or
-`xclip`/`wl-paste` (Linux) for screenshot data.
+(inline clipboard image / image files). Screenshot data needs no extra tools on
+macOS (built-in `osascript`); Linux uses `wl-paste`/`xclip`.
 | `<leader>c` | Compose new message |
 | `<leader>f` | Fetch mail (async fetchmail, refreshes index) |
 | `R` | Refresh from disk |
@@ -245,8 +246,7 @@ Check with `:echo has('job') && has('timers') && has('lambda') && has('conceal')
 | `sendmail` | Delivering outgoing mail (called by `mail_store.py send`) | ships with macOS Postfix |
 | `open` / `xdg-open` | Opening `body.html` in browser (`x` keymap) | macOS built-in / `xdg-utils` on Linux |
 | `python3` | Running `mail_store.py` | `brew install python` or system |
-| `pngpaste` / `xclip` / `wl-paste` | Clipboard image data for `<leader>p` (optional) | `brew install pngpaste` / `xclip` / `wl-clipboard` |
-| `osascript` / `xclip` | Clipboard file paths for `<leader>a` (optional) | macOS built-in / `xclip` |
+| `osascript` (macOS) / `wl-paste` / `xclip` (Linux) | Clipboard image data + file paths for `<leader>p`/`<leader>a` | macOS built-in; `wl-clipboard` / `xclip` on Linux |
 
 Postfix must be configured to relay through Gmail SMTP — see `mail-setup.md` §1.
 

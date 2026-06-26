@@ -965,16 +965,31 @@ function! mail#_is_image(path) abort
 endfunction
 
 " Save clipboard image *data* (e.g. a screenshot) to a temp PNG; '' if none.
+" macOS uses built-in osascript (coerce the clipboard to PNG) — no extra tools.
+" Linux uses wl-paste / xclip (no universal built-in there).
 function! mail#_clipboard_image() abort
   let tmp = tempname() . '.png'
   if has('mac')
-    if !executable('pngpaste') | return '' | endif
-    call system('pngpaste ' . shellescape(tmp))
-  else
-    if !executable('xclip') | return '' | endif
+    let script = join([
+          \ 'try',
+          \ '  set png to the clipboard as «class PNGf»',
+          \ 'on error',
+          \ '  return',
+          \ 'end try',
+          \ 'set fh to open for access (POSIX file "' . tmp . '") with write permission',
+          \ 'set eof fh to 0',
+          \ 'write png to fh',
+          \ 'close access fh',
+          \ ], "\n")
+    call system('osascript', script)
+  elseif executable('wl-paste')
+    call system('wl-paste --type image/png > ' . shellescape(tmp) . ' 2>/dev/null')
+  elseif executable('xclip')
     call system('xclip -selection clipboard -t image/png -o > ' . shellescape(tmp) . ' 2>/dev/null')
+  else
+    return ''
   endif
-  if v:shell_error == 0 && filereadable(tmp) && getfsize(tmp) > 0
+  if filereadable(tmp) && getfsize(tmp) > 0
     return tmp
   endif
   call delete(tmp)
@@ -995,11 +1010,7 @@ function! mail#paste_image() abort
   else
     let files = mail#_clipboard_files()
     if empty(files)
-      echohl WarningMsg
-      echom has('mac') && !executable('pngpaste')
-            \ ? 'mail: no image file in clipboard (install pngpaste for screenshots)'
-            \ : 'mail: no image in clipboard'
-      echohl None
+      echohl WarningMsg | echom 'mail: no image in clipboard' | echohl None
       return
     endif
     for f in files
