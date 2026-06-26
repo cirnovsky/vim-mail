@@ -75,6 +75,9 @@ try
           \ . f1 . "','" . f2 . "'].forEach(function(p){var it=$.NSPasteboardItem.alloc.init;"
           \ . " it.setStringForType($.NSURL.fileURLWithPath(p).absoluteString,'public.file-url');"
           \ . " items.addObject(it);}); pb.writeObjects(items);"
+          \ . " $.NSThread.sleepForTimeInterval(0.15);"
+          " ^ keep the writer alive briefly: without it the process can exit
+          "   before the multi-item pasteboard write durably commits (flaky).
     call system('osascript -l JavaScript', setjs)
     call assert_equal(sort([f1, f2]), sort(mail#_clipboard_files()),
           \ 'both copied files are returned (not just one)')
