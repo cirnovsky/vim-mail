@@ -131,7 +131,7 @@ marked as deleted" → "Immediately delete the message forever".
 ## 3. One-time full-mailbox archive (historical)
 
 A one-time download of the entire mail history into a single mbox file
-(`~/Mail/gmail_archive.mbox`), separate from the live store. Not part of the
+(`/path/to/Mail/gmail_archive.mbox`), separate from the live store. Not part of the
 running system — kept here because that file still exists on disk.
 
 Key implementation points of the archive script:
@@ -141,11 +141,11 @@ Key implementation points of the archive script:
   (`\All`) rather than hardcoding `[Gmail]/All Mail`, since the literal
   name varies by account language/locale.
 - Gmail's "All Mail" excludes Spam and Trash by Gmail's own design.
-- Tracks completed UIDs in a sidecar file (`~/Mail/.gmail_archive_done_uids`)
+- Tracks completed UIDs in a sidecar file (`/path/to/Mail/.gmail_archive_done_uids`)
   so an interrupted run can resume without re-downloading.
 
 To fold that archive into the store, run it through the migrator:
-`python3 mail_store.py migrate ~/Mail/gmail_archive.mbox <mailbox-dir>`.
+`python3 mail_store.py migrate /path/to/Mail/gmail_archive.mbox <mailbox-dir>`.
 
 ## 4. The vim-mail frontend
 
@@ -215,7 +215,7 @@ HTML-only mail — **not** the annotated `body.txt`. The `On … wrote:` attribu
 is added in the compose buffer (editable before sending). Threading is carried by
 the `In-Reply-To`/`References` headers, independent of MIME type. After delivery
 via `sendmail -t`, the message is ingested into `<sent-dir>` (default
-`~/Mail/sent`) for thread reconstruction.
+`/path/to/Mail/sent`) for thread reconstruction.
 
 > Why two classes: a plain-text-only message shows literal `>` in clients that
 > don't style quotes (e.g. QQ Mail), so we always send an HTML part. For plain
@@ -251,7 +251,7 @@ a GitHub `'user/vim-mail'` spec):
 ```vim
 Plug '/path/to/vim-mail'
 
-let g:mail_root = '~/Mail'                              " all mailboxes live here
+let g:mail_root = '/path/to/Mail'                       " all mailboxes live here
 let g:mail_from = 'Your Name <youraddress@gmail.com>'  " From: header on outgoing mail
 
 " Optional — auto-detected otherwise (python3 on PATH, mail_store.py in repo):
@@ -270,7 +270,7 @@ Usage:
 :Mail               " opens g:mail_root/inbox
 :Mail inbox         " same — bare name is resolved under g:mail_root
 :Mail sent          " g:mail_root/sent
-:Mail ~/Mail/trash  " absolute/~ paths still work as-is
+:Mail /path/to/Mail/trash  " absolute/~ paths still work as-is
 ```
 
 #### Keymaps — index buffer
@@ -312,7 +312,7 @@ Recovery from accidental delete: `:Mail trash` → find the message → `M` back
 Emptying the trash:
 
 ```vim
-:Mail ~/Mail/trash   →  ggdG  →  :w
+:Mail /path/to/Mail/trash   →  ggdG  →  :w
 ```
 
 #### Sending
@@ -335,7 +335,7 @@ reply text here
 (verbatim text/plain + an HTML part — order-preserving render for plain-text
 originals, or the embedded original `body.html` for HTML originals) and delivers
 it via `sendmail -t` (Postfix → Gmail relay). The sent copy is automatically
-ingested into `~/Mail/sent`. Threading is preserved by the
+ingested into `/path/to/Mail/sent`. Threading is preserved by the
 `In-Reply-To`/`References` headers, not by MIME type.
 
 **Forwarding** comes in two modes, both new-thread (no `In-Reply-To`/
@@ -425,7 +425,7 @@ exit code:
 - At the end, `qall!` (exit 0) if `v:errors` is empty, else `cquit!`
   (non-zero). `run.sh` keys off that exit code.
 - Build fixtures in an isolated `tempname()` dir and `delete(root, 'rf')`
-  after — **never** touch a real `~/Mail`.
+  after — **never** touch a real mail store.
 - Run a single file directly: `vim -u NONE -N -es -S tests/test_move.vim`.
 
 **Gotcha — stubbing autoloaded functions.** `mail#*` functions are loaded

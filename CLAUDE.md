@@ -8,7 +8,7 @@ the plugin itself.
 ## Storage format
 
 ```
-~/Mail/<mailbox>/<UTC-timestamp>_<8-hex-hash>/
+/path/to/Mail/<mailbox>/<UTC-timestamp>_<8-hex-hash>/
     raw.eml          original RFC822 bytes, never modified
     meta             From/To/Cc/Subject/Date/Message-ID/In-Reply-To, one per line
     body.txt         decoded plain text; Links: footer; [img N] / [audio N] markers; Attachments: footer
@@ -68,7 +68,7 @@ Each line: `<id>\t<N|space><*|space> <date>  <from>  <subject>`
 ## `:w` semantics (buffer as source of truth)
 
 `BufWriteCmd` calls `mail#write()` which does a single reconciliation pass:
-- Lines missing from buffer → message dir moved to `~/Mail/trash` (or deleted if already in trash)
+- Lines missing from buffer → message dir moved to `/path/to/Mail/trash` (or deleted if already in trash)
 - Read indicator differs from disk → `.read` file written or deleted
 
 Both are staged until `:w`. `u` reverts either before committing.
@@ -284,7 +284,7 @@ relative to its own root. Point your plugin manager at wherever you cloned it
 
 ```vim
 Plug '/path/to/vim-mail'
-let g:mail_root = '~/Mail'
+let g:mail_root = '/path/to/Mail'
 let g:mail_from = 'Your Name <youraddress@gmail.com>'
 ```
 

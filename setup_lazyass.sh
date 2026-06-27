@@ -1,10 +1,23 @@
 #!/bin/sh
-# vim-mail one-shot setup (macOS).
+# vim-mail one-shot setup (macOS + Linux).
 #
-# Prompts ONLY for your Gmail address and app password, then does everything
-# else: installs deps, configures the Postfix→Gmail relay in /etc (with backups,
-# idempotent), writes ~/.fetchmailrc, creates the store, and verifies the login.
-# The only other thing it asks for is your *sudo* password (needed for /etc).
+# Prompts for your Gmail address, app password, and where to keep the mail store
+# (defaults to ~/Mail), then does everything else: installs deps, configures the
+# Postfix→Gmail relay in /etc (with backups, idempotent), writes ~/.fetchmailrc,
+# creates the store, and verifies the login. The only other thing it asks for is
+# your *sudo* password (needed for /etc).
+#
+# ⚠  PRECAUTION — this is a convenience installer, NOT a magic button.
+#   It edits system files: it appends to /etc/postfix/main.cf, writes
+#   /etc/postfix/sasl_passwd, (re)starts Postfix, and writes ~/.fetchmailrc. It
+#   backs up everything it changes to *.vimmail.<timestamp>.bak, but it is
+#   best-effort and not bulletproof. READ IT before running, and treat it as an
+#   automated, runnable version of the manual install steps in README.md /
+#   mail-setup.md — if anything looks off for your machine, follow those by hand.
+#
+#   macOS is tested. The Linux path (apt/dnf/pacman package install, systemctl
+#   service start, CA-bundle probing) is written but UNTESTED — sanity-check each
+#   step if you rely on it, and keep the manual steps handy as a fallback.
 #
 # Requires: 2-Step Verification on the Google account + an app password
 #   https://myaccount.google.com/apppasswords
@@ -20,7 +33,11 @@ say()  { printf '\033[1;34m==>\033[0m %s\n' "$1"; }
 warn() { printf '\033[1;33m!! \033[0m %s\n' "$1" >&2; }
 die()  { printf '\033[1;31mxx \033[0m %s\n' "$1" >&2; exit 1; }
 
-[ "$(uname -s)" = "Darwin" ] || die "This script is macOS-only (Postfix relay setup). On Linux, follow README.md."
+OS=$(uname -s)
+case $OS in
+  Darwin|Linux) ;;
+  *) die "Unsupported OS '$OS'. macOS and Linux only — follow README.md manually." ;;
+esac
 
 # --- locate this repo (follow symlinks) ------------------------------------
 SELF=$0
@@ -31,29 +48,69 @@ done
 REPO=$(cd -P "$(dirname "$SELF")" && pwd)
 [ -f "$REPO/mail_store.py" ] || die "mail_store.py not found next to this script ($REPO)"
 
-# --- prompts (the only two) -------------------------------------------------
+# --- precaution / confirm ---------------------------------------------------
+warn "This will edit system files (/etc/postfix/main.cf + sasl_passwd), (re)start"
+warn "Postfix, and write ~/.fetchmailrc. Changes are backed up to *.vimmail.*.bak,"
+warn "but this is best-effort — it's an automated version of README.md's steps."
+[ "$OS" = "Linux" ] && warn "NOTE: the Linux path is UNTESTED. Verify each step or follow README.md by hand."
+printf 'Proceed? [y/N]: '; read -r ANS
+case $ANS in [Yy]|[Yy][Ee][Ss]) ;; *) die "Aborted." ;; esac
+
+# --- prompts (the only inputs) ----------------------------------------------
 printf 'Gmail address: '; read -r EMAIL
 [ -n "$EMAIL" ] || die "no email given"
 printf 'Gmail app password (hidden): '
 stty -echo 2>/dev/null; read -r APPPW; stty echo 2>/dev/null; printf '\n'
 [ -n "$APPPW" ] || die "no password given"
+DEFAULT_ROOT="$HOME/Mail"
+printf 'Mail store path [%s]: ' "$DEFAULT_ROOT"; read -r MAIL_ROOT
+MAIL_ROOT=${MAIL_ROOT:-$DEFAULT_ROOT}
+# Expand a leading ~ (read leaves it literal).
+case $MAIL_ROOT in "~") MAIL_ROOT=$HOME ;; "~/"*) MAIL_ROOT=$HOME/${MAIL_ROOT#"~/"} ;; esac
 USER_NAME=$(id -un)
 
 say "Caching sudo (needed to write /etc/postfix)…"
 sudo -v
 
-# --- dependencies -----------------------------------------------------------
-if ! command -v brew >/dev/null 2>&1; then
-  die "Homebrew not found. Install from https://brew.sh then re-run."
+# --- package manager + dependencies ----------------------------------------
+if [ "$OS" = "Darwin" ]; then
+  command -v brew >/dev/null 2>&1 || die "Homebrew not found. Install from https://brew.sh then re-run."
+  PKG=brew
+elif command -v apt-get >/dev/null 2>&1; then
+  PKG=apt
+elif command -v dnf >/dev/null 2>&1; then
+  PKG=dnf
+elif command -v pacman >/dev/null 2>&1; then
+  PKG=pacman
+else
+  die "No supported package manager (brew/apt/dnf/pacman). Install postfix, fetchmail, python3 manually, then re-run."
+fi
+
+pkg_install() {  # $1 = generic tool name (postfix | fetchmail | python3)
+  case "$PKG:$1" in
+    brew:python3)   brew install python ;;
+    brew:*)         brew install "$1" ;;
+    apt:*)          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y "$1" ;;
+    dnf:*)          sudo dnf install -y "$1" ;;
+    pacman:python3) sudo pacman -S --needed --noconfirm python ;;
+    pacman:*)       sudo pacman -S --needed --noconfirm "$1" ;;
+  esac
+}
+
+[ "$PKG" = apt ] && { say "Refreshing apt package index…"; sudo apt-get update; }
+
+# Postfix is built into macOS; on Linux install it if missing.
+if [ "$OS" != "Darwin" ] && ! command -v postfix >/dev/null 2>&1; then
+  say "Installing postfix…"; pkg_install postfix
 fi
 if ! command -v fetchmail >/dev/null 2>&1; then
-  say "Installing fetchmail…"; brew install fetchmail
+  say "Installing fetchmail…"; pkg_install fetchmail
 else
   say "fetchmail already installed."
 fi
 PYTHON=$(command -v python3 || true)
 if [ -z "$PYTHON" ]; then
-  say "Installing python3…"; brew install python; PYTHON=$(command -v python3)
+  say "Installing python3…"; pkg_install python3; PYTHON=$(command -v python3)
 fi
 say "Using python3: $PYTHON"
 
@@ -62,12 +119,21 @@ MAIN_CF=/etc/postfix/main.cf
 SASL=/etc/postfix/sasl_passwd
 STAMP=$(date +%Y%m%d%H%M%S 2>/dev/null || echo backup)
 
+# CA bundle path differs by OS/distro — probe the usual locations.
+CAFILE=""
+for c in /etc/ssl/cert.pem /etc/ssl/certs/ca-certificates.crt /etc/pki/tls/certs/ca-bundle.crt; do
+  [ -f "$c" ] && { CAFILE=$c; break; }
+done
+[ -n "$CAFILE" ] || die "No TLS CA bundle found in the usual paths; set smtp_tls_CAfile manually in $MAIN_CF."
+say "Using CA bundle: $CAFILE"
+
+[ -f "$MAIN_CF" ] || die "$MAIN_CF not found — is Postfix installed? Install it, then re-run."
 if sudo grep -q '^relayhost = \[smtp.gmail.com\]:587' "$MAIN_CF" 2>/dev/null; then
   say "main.cf already has the Gmail relay block — leaving it."
 else
   say "Backing up $MAIN_CF and appending the relay block…"
   sudo cp "$MAIN_CF" "$MAIN_CF.vimmail.$STAMP.bak"
-  sudo tee -a "$MAIN_CF" >/dev/null <<'CF'
+  sudo tee -a "$MAIN_CF" >/dev/null <<CF
 
 # --- added by vim-mail setup_lazyass.sh ---
 relayhost = [smtp.gmail.com]:587
@@ -75,7 +141,7 @@ smtp_sasl_auth_enable = yes
 smtp_sasl_password_maps = hash:/etc/postfix/sasl_passwd
 smtp_sasl_security_options = noanonymous
 smtp_tls_security_level = encrypt
-smtp_tls_CAfile = /etc/ssl/cert.pem
+smtp_tls_CAfile = $CAFILE
 inet_protocols = ipv4
 smtp_sasl_mechanism_filter = plain
 CF
@@ -88,11 +154,15 @@ sudo chmod 600 "$SASL"
 sudo postmap "$SASL"
 
 say "Starting/reloading Postfix…"
-sudo postfix start 2>/dev/null || true      # macOS won't auto-start it
-sudo postfix reload 2>/dev/null || sudo postfix start
+if command -v systemctl >/dev/null 2>&1; then
+  sudo systemctl enable --now postfix
+  sudo systemctl reload postfix 2>/dev/null || sudo systemctl restart postfix
+else
+  sudo postfix start 2>/dev/null || true      # macOS won't auto-start it
+  sudo postfix reload 2>/dev/null || sudo postfix start
+fi
 
 # --- mail store + ~/.fetchmailrc -------------------------------------------
-MAIL_ROOT="${MAIL_ROOT:-$HOME/Mail}"
 say "Creating store at $MAIL_ROOT (inbox, sent)…"
 mkdir -p "$MAIL_ROOT/inbox" "$MAIL_ROOT/sent"
 

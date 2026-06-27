@@ -12,7 +12,7 @@ It has three parts you set up once, in order:
 
 ---
 
-## Quick start (macOS, lazy mode)
+## Quick start (lazy mode)
 
 If you just want it working, clone the repo and run:
 
@@ -20,14 +20,22 @@ If you just want it working, clone the repo and run:
 ./setup_lazyass.sh
 ```
 
-It prompts **only** for your Gmail address and app password (and your sudo
-password, for `/etc`), then does the rest — installs deps, configures the
-Postfix→Gmail relay in `/etc` (with backups, idempotent), writes
+It prompts for your Gmail address, app password, and where to keep the mail store
+(and your sudo password, for `/etc`), then does the rest — installs deps,
+configures the Postfix→Gmail relay in `/etc` (with backups, idempotent), writes
 `~/.fetchmailrc`, creates the store, and verifies the login. At the end it prints
 the three vimrc lines to add (the one manual step, since plugin managers vary).
 
-Prefer to understand each piece, or on Linux? Follow the manual steps below —
-they're the same thing, broken out.
+> **Read it before you run it.** This script edits system files (`/etc/postfix/…`),
+> (re)starts Postfix, and writes `~/.fetchmailrc`. It backs up everything it
+> changes to `*.vimmail.<timestamp>.bak`, but it's best-effort, not bulletproof —
+> treat it as an automated, runnable version of the manual steps below. **macOS
+> is tested; the Linux path (apt/dnf/pacman, systemctl, CA-bundle probing) is
+> written but UNTESTED** — if anything looks off for your machine, follow the
+> manual steps instead.
+
+Prefer to understand each piece? The manual steps below are the same thing,
+broken out.
 
 ---
 
@@ -59,6 +67,12 @@ inet_protocols = ipv4
 smtp_sasl_mechanism_filter = plain
 ```
 
+The `smtp_tls_CAfile` path is for macOS. On Linux use your distro's CA bundle —
+`/etc/ssl/certs/ca-certificates.crt` (Debian/Ubuntu) or
+`/etc/pki/tls/certs/ca-bundle.crt` (RHEL/Fedora). On Linux you also need to
+install Postfix first (`apt install postfix` / `dnf install postfix`); macOS ships
+it.
+
 Create `/etc/postfix/sasl_passwd` with your credentials:
 
 ```
@@ -73,6 +87,9 @@ sudo postmap /etc/postfix/sasl_passwd
 sudo postfix start      # macOS doesn't auto-start it
 sudo postfix reload
 ```
+
+On Linux, Postfix runs under systemd instead — use
+`sudo systemctl enable --now postfix` (and `sudo systemctl reload postfix`).
 
 Check it works:
 
@@ -92,14 +109,14 @@ folder:
 
 ```bash
 git clone https://github.com/cirnovsky/vim-mail ~/vim-mail
-mkdir -p ~/Mail/inbox ~/Mail/sent
+mkdir -p /path/to/Mail/inbox /path/to/Mail/sent
 ```
 
 In your vimrc:
 
 ```vim
 Plug '~/vim-mail'                                  " or wherever you cloned it
-let g:mail_root = '~/Mail'                         " where all mail is stored
+let g:mail_root = '/path/to/Mail'                  " where all mail is stored
 let g:mail_from = 'Your Name <you@gmail.com>'      " your From: line
 ```
 
@@ -161,7 +178,8 @@ Then, in the inbox buffer:
 | `q` | Close |
 
 Deletes, reads, and moves are **staged** like normal edits — nothing touches
-disk until you `:w`. Deleted mail goes to `~/Mail/trash` (recoverable with `M`).
+disk until you `:w`. Deleted mail goes to a `trash/` folder under your mail root
+(recoverable with `M`).
 
 **Writing mail.** `r`, `f`, `<leader>c` open a compose buffer; just `:w` to send.
 While composing:
