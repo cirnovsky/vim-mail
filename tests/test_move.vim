@@ -1,4 +1,4 @@
-" Headless test suite for mail#move().
+" Headless test suite for mail#actions#move().
 "
 " Run:  vim -u NONE -N -es -S tests/test_move.vim
 " Exit code 0 = all pass, 1 = failure. A summary + any assert failures are
@@ -12,7 +12,7 @@ execute 'set rtp+=' . fnameescape(s:repo)
 runtime plugin/mail.vim
 " Force the autoload to load now, BEFORE we stub _prompt_mailbox below — else
 " the first lazy mail#* call would re-source autoload and clobber the stub.
-runtime autoload/mail.vim
+runtime! autoload/mail/*.vim
 
 " Build a minimal valid message directory (meta + raw.eml, both non-empty so
 " a colliding rename() genuinely fails the way it does on a real store).
@@ -30,14 +30,14 @@ endfunction
 
 " Stub the mailbox prompt so move() runs without interactive input().
 let g:test_move_dest = ''
-function! mail#_prompt_mailbox(prompt, default) abort
+function! mail#mailbox#_prompt_mailbox(prompt, default) abort
   return g:test_move_dest
 endfunction
 
 " Stub the 3-way confirm ('save'/'discard'/'cancel') so the staged-edit guard is
 " testable in batch mode.
 let g:test_confirm = 'discard'
-function! mail#_confirm(msg) abort
+function! mail#actions#_confirm(msg) abort
   return g:test_confirm
 endfunction
 
@@ -49,9 +49,9 @@ function! Test_move_collision_reports_error() abort
   let g:mail_root = root
   let g:test_move_dest = 'history'
 
-  call mail#open('inbox')
+  call mail#index#open('inbox')
   call cursor(1, 1)
-  let out = execute('call mail#move()')
+  let out = execute('call mail#actions#move()')
 
   call assert_match('could not move', out, 'collision must report an error')
   call assert_match('already exists in history', out, 'error names the cause')
@@ -72,9 +72,9 @@ function! Test_move_clean_succeeds() abort
   let g:mail_root = root
   let g:test_move_dest = 'archive'
 
-  call mail#open('inbox')
+  call mail#index#open('inbox')
   call cursor(1, 1)
-  let out = execute('call mail#move()')
+  let out = execute('call mail#actions#move()')
 
   call assert_match('Moved 1 message', out, 'clean move reports success')
   call assert_notmatch('could not move', out, 'no error on clean move')
@@ -97,14 +97,14 @@ function! Test_move_guard_cancel() abort
   let g:mail_root = root
   let g:test_move_dest = 'archive'
 
-  call mail#open('inbox')
+  call mail#index#open('inbox')
   call assert_false(&modified, 'fresh buffer is unmodified after open')
   normal! dd                                  " stage a delete (not :w)
   call assert_true(&modified, 'dd staged a change')
 
   let g:test_confirm = 'cancel'                " user picks Cancel at the guard
   call cursor(1, 1)
-  call mail#move()
+  call mail#actions#move()
 
   call assert_equal([], glob(root . '/archive/*', 0, 1), 'nothing moved (cancelled)')
   call assert_true(isdirectory(root . '/inbox/20260101T000000Z_aaaaaaaa'), 'A kept')
@@ -123,11 +123,11 @@ function! Test_move_guard_discard() abort
   let g:mail_root = root
   let g:test_move_dest = 'archive'
 
-  call mail#open('inbox')
+  call mail#index#open('inbox')
   setlocal modified                            " simulate staged edits
   let g:test_confirm = 'discard'                " user picks Discard
   call cursor(1, 1)
-  call mail#move()
+  call mail#actions#move()
 
   call assert_true(isdirectory(root . '/archive/20260101T000000Z_cccccccc'),
         \ 'move proceeds when guard is confirmed')
@@ -145,7 +145,7 @@ function! Test_move_guard_save() abort
   let g:mail_root = root
   let g:test_move_dest = 'archive'
 
-  call mail#open('inbox')
+  call mail#index#open('inbox')
   " buffer is reverse-sorted: line 1 = ...bbbb, line 2 = ...aaaa
   call cursor(1, 1)
   normal! dd                                    " stage delete of ...bbbb
@@ -153,7 +153,7 @@ function! Test_move_guard_save() abort
 
   let g:test_confirm = 'save'                    " commit staged, then move
   call cursor(1, 1)                              " now ...aaaa
-  call mail#move()
+  call mail#actions#move()
 
   " ...aaaa moved to archive; ...bbbb's staged delete committed to trash
   call assert_true(isdirectory(root . '/archive/20260101T000000Z_aaaaaaaa'), 'target moved')

@@ -1,5 +1,5 @@
 " REAL clipboard integration: put a PNG on the system clipboard, then verify the
-" unstubbed mail#_clipboard_image actually captures it and that mail#paste_image
+" unstubbed mail#attach#_clipboard_image actually captures it and that mail#attach#paste_image
 " inserts an [img] marker end to end. This is the test that would have caught the
 " "relies on pngpaste, which isn't installed" breakage — the other tests stub the
 " clipboard grab, so they cannot.
@@ -13,7 +13,7 @@
 let s:repo = expand('<sfile>:p:h:h')
 execute 'set rtp+=' . fnameescape(s:repo)
 runtime plugin/mail.vim
-runtime autoload/mail.vim
+runtime! autoload/mail/*.vim
 
 let s:png = s:repo . '/tests/fixtures/pixel.png'
 
@@ -46,7 +46,7 @@ try
   call s:set_clipboard_image(s:png)
 
   " 1. The real capture returns a readable, valid PNG.
-  let p = mail#_clipboard_image()
+  let p = mail#attach#_clipboard_image()
   call assert_true(p !=# '' && filereadable(p), 'clipboard image captured: ' . p)
   if p !=# '' && filereadable(p)
     call assert_true(getfsize(p) > 0, 'captured file non-empty')
@@ -58,7 +58,7 @@ try
   enew
   let b:mail_compose_to = ''
   call s:set_clipboard_image(s:png)
-  call mail#paste_image()
+  call mail#attach#paste_image()
   call assert_match('\[img 1\]', join(getline(1, '$'), "\n"),
         \ 'paste_image inserted a marker from the real clipboard')
   call assert_true(exists('b:mail_attachments') && len(b:mail_attachments) == 1,
@@ -79,7 +79,7 @@ try
           " ^ keep the writer alive briefly: without it the process can exit
           "   before the multi-item pasteboard write durably commits (flaky).
     call system('osascript -l JavaScript', setjs)
-    call assert_equal(sort([f1, f2]), sort(mail#_clipboard_files()),
+    call assert_equal(sort([f1, f2]), sort(mail#attach#_clipboard_files()),
           \ 'both copied files are returned (not just one)')
     call delete(f1) | call delete(f2)
   endif

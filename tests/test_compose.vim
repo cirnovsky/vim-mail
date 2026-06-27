@@ -1,11 +1,11 @@
-" Headless test: mail#reply() builds a plain-text, threading-friendly compose
+" Headless test: mail#compose#reply() builds a plain-text, threading-friendly compose
 " buffer — To/Subject/In-Reply-To/References headers, an attribution line, and
 " '> '-quoted original body. Run: vim -u NONE -N -es -S tests/test_compose.vim
 
 let s:repo = expand('<sfile>:p:h:h')
 execute 'set rtp+=' . fnameescape(s:repo)
 runtime plugin/mail.vim
-runtime autoload/mail.vim
+runtime! autoload/mail/*.vim
 
 function! s:mkmsg(dir) abort
   call mkdir(a:dir, 'p')
@@ -38,9 +38,9 @@ function! Test_reply_builds_plain_threading_buffer() abort
   let g:mail_root = root
   let g:mail_from = 'Me <me@example.com>'
 
-  call mail#open('inbox')
+  call mail#index#open('inbox')
   call cursor(1, 1)
-  call mail#reply()
+  call mail#compose#reply()
 
   let lines = getline(1, '$')
   let text  = join(lines, "\n")
@@ -84,9 +84,9 @@ function! Test_forward_inline_buffer() abort
   call s:mkmsg(root . '/inbox/20260101T000000Z_aabbccdd')
   let g:mail_root = root
   let g:mail_from = 'Me <me@example.com>'
-  call mail#open('inbox')
+  call mail#index#open('inbox')
   call cursor(1, 1)
-  call mail#forward()
+  call mail#compose#forward()
   call s:check_forward_common(join(getline(1, '$'), "\n"), getline(1, '$'))
   call assert_true(exists('b:mail_compose_fwd_inline'), 'inline forward flagged')
   call assert_match('20260101T000000Z_aabbccdd$', b:mail_compose_orig_dir,
@@ -100,9 +100,9 @@ function! Test_forward_attach_buffer() abort
   call s:mkmsg(root . '/inbox/20260101T000000Z_aabbccdd')
   let g:mail_root = root
   let g:mail_from = 'Me <me@example.com>'
-  call mail#open('inbox')
+  call mail#index#open('inbox')
   call cursor(1, 1)
-  call mail#forward_attach()
+  call mail#compose#forward_attach()
   call s:check_forward_common(join(getline(1, '$'), "\n"), getline(1, '$'))
   call assert_true(exists('b:mail_compose_forward'), 'attach forward dir recorded')
   call assert_match('20260101T000000Z_aabbccdd$', b:mail_compose_forward,
@@ -112,21 +112,21 @@ function! Test_forward_attach_buffer() abort
 endfunction
 
 " Attachments: registering a file adds it to b:mail_attachments and writes an
-" Attachments: footer; mail#_split_attachments resolves surviving footer ids to
+" Attachments: footer; mail#send#_split_attachments resolves surviving footer ids to
 " paths and strips the footer from the body (deleted line => file dropped).
 function! Test_attach_footer_and_split() abort
   let root = tempname() . '/Mail'
   call s:mkmsg(root . '/inbox/20260101T000000Z_aabbccdd')
   let g:mail_root = root
   let g:mail_from = 'Me <me@example.com>'
-  call mail#open('inbox')
+  call mail#index#open('inbox')
   call cursor(1, 1)
-  call mail#compose()
+  call mail#compose#compose()
 
   let f1 = tempname() | call writefile(['x'], f1)
   let f2 = tempname() | call writefile(['y'], f2)
-  call mail#attach(f1)
-  call mail#attach(f2)
+  call mail#attach#attach(f1)
+  call mail#attach#attach(f2)
 
   let text = join(getline(1, '$'), "\n")
   call assert_match('\nAttachments:\n', text, 'Attachments: footer created')
@@ -136,14 +136,14 @@ function! Test_attach_footer_and_split() abort
 
   " Resolve the whole body: both surviving -> both paths, footer stripped.
   let body = getline(1, '$')[index(getline(1,'$'), '') + 1 :]  " body after header blank
-  let r = mail#_split_attachments(body)
+  let r = mail#send#_split_attachments(body)
   call assert_equal([fnamemodify(f1, ':p'), fnamemodify(f2, ':p')], r.paths,
         \ 'both paths resolved')
   call assert_notmatch('Attachments:', join(r.body, "\n"), 'footer stripped from body')
 
   " Drop the [1] entry from the footer -> only the second file is sent.
   call filter(body, 'v:val !~# "^\\[1\\] "')
-  let r2 = mail#_split_attachments(body)
+  let r2 = mail#send#_split_attachments(body)
   call assert_equal([fnamemodify(f2, ':p')], r2.paths, 'deleted footer line drops file')
 
   bwipeout!
@@ -151,27 +151,27 @@ function! Test_attach_footer_and_split() abort
   call delete(f1) | call delete(f2)
 endfunction
 
-" Inline images: mail#_register_inline tags entries inline=1 (no footer); a
+" Inline images: mail#attach#_register_inline tags entries inline=1 (no footer); a
 " surviving '[img id]' marker in the body resolves to [id, path] via
-" mail#_inline_images; deleting the marker drops it.
+" mail#send#_inline_images; deleting the marker drops it.
 function! Test_inline_images_resolve() abort
   let root = tempname() . '/Mail'
   call s:mkmsg(root . '/inbox/20260101T000000Z_aabbccdd')
   let g:mail_root = root
   let g:mail_from = 'Me <me@example.com>'
-  call mail#open('inbox')
+  call mail#index#open('inbox')
   call cursor(1, 1)
-  call mail#compose()
+  call mail#compose#compose()
 
   let img = tempname() . '.png' | call writefile(['x'], img)
-  let id = mail#_register_inline(img)
+  let id = mail#attach#_register_inline(img)
   call assert_equal(1, id, 'first inline id')
   call assert_equal(1, b:mail_attachments[0].inline, 'tagged inline')
 
   let body = ['look:', '[img 1]', 'bye']
-  call assert_equal([[1, fnamemodify(img, ':p')]], mail#_inline_images(body),
+  call assert_equal([[1, fnamemodify(img, ':p')]], mail#send#_inline_images(body),
         \ 'surviving marker resolves to [id, path]')
-  call assert_equal([], mail#_inline_images(['no marker here']),
+  call assert_equal([], mail#send#_inline_images(['no marker here']),
         \ 'no marker -> nothing (deleted image dropped)')
 
   bwipeout!
@@ -179,9 +179,9 @@ function! Test_inline_images_resolve() abort
 endfunction
 
 " Stub the clipboard-image grab (the only part needing pngpaste/xclip) so we can
-" test mail#paste_image's flow headlessly. Defined after 'runtime autoload' so it
+" test mail#attach#paste_image's flow headlessly. Defined after 'runtime autoload' so it
 " overrides the real one.
-function! mail#_clipboard_image() abort
+function! mail#attach#_clipboard_image() abort
   return get(g:, 'test_clip_img', '')
 endfunction
 
@@ -190,14 +190,14 @@ function! Test_paste_image_inserts_marker() abort
   call s:mkmsg(root . '/inbox/20260101T000000Z_aabbccdd')
   let g:mail_root = root
   let g:mail_from = 'Me <me@example.com>'
-  call mail#open('inbox')
+  call mail#index#open('inbox')
   call cursor(1, 1)
-  call mail#compose()
+  call mail#compose#compose()
 
   let g:test_clip_img = tempname() . '.png' | call writefile(['x'], g:test_clip_img)
   " cursor on the empty body line; paste the (stubbed) clipboard image
   call cursor(line('$'), 1)
-  call mail#paste_image()
+  call mail#attach#paste_image()
 
   call assert_match('\[img 1\]', join(getline(1, '$'), "\n"), '[img 1] marker inserted')
   call assert_equal(1, len(b:mail_attachments), 'one inline image tracked')

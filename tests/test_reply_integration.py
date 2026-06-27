@@ -4,9 +4,9 @@ End-to-end reply + forward test on the REAL complex message
 opens it and replies (top-post) / forwards -> CLI send (sendmail faked) -> CLI
 ingest into the sent box -> assert each sent message meets requirements.
 
-Exercises the whole pipeline together: mail_store ingestion, mail#reply quote
-sourcing, mail#forward (inline + as-attachment), mail#compose + :Attach, and
-mail#send (class-2 MIME, message/rfc822 forward, X-Mail-Attach attachments).
+Exercises the whole pipeline together: mail_store ingestion, mail#compose#reply quote
+sourcing, mail#compose#forward (inline + as-attachment), mail#compose#compose + :Attach, and
+mail#send#send (class-2 MIME, message/rfc822 forward, X-Mail-Attach attachments).
 
 Run: python3 tests/test_reply_integration.py   (needs vim on PATH)
 """
@@ -82,11 +82,11 @@ runtime autoload/mail.vim
 let g:mail_root = '{STORE}'
 let g:mail_from = 'Me <me@example.com>'
 try
-  call mail#open('inbox')
+  call mail#index#open('inbox')
   call cursor(1, 1)
-  call mail#reply()
+  call mail#compose#reply()
   call setline(line('.'), 'Top posted reply.')
-  call mail#send()
+  call mail#send#send()
   call writefile(['OK'], '{status}')
 catch
   call writefile(['ERR: ' . v:exception . ' @ ' . v:throwpoint], '{status}')
@@ -159,11 +159,11 @@ runtime autoload/mail.vim
 let g:mail_root = '{STORE}'
 let g:mail_from = 'Me <me@example.com>'
 try
-  call mail#open('inbox')
+  call mail#index#open('inbox')
   call cursor(1, 1)
   call {call}
   call setline(line('.'), 'Forwarding this.')
-  call mail#send()
+  call mail#send#send()
   call writefile(['OK'], '{st}')
 catch
   call writefile(['ERR: ' . v:exception . ' @ ' . v:throwpoint], '{st}')
@@ -176,8 +176,8 @@ qall!
         ok(f'vim {tag} forward+send ran cleanly', s == 'OK',
            s + ' | ' + r.stderr.decode('utf-8', 'replace'))
 
-    run_forward("mail#forward()", 'inline')
-    run_forward("mail#forward_attach()", 'attach')
+    run_forward("mail#compose#forward()", 'inline')
+    run_forward("mail#compose#forward_attach()", 'attach')
 
     # classify the sent messages: reply = alternative; inline forward = mixed,
     # no rfc822; attach forward = mixed with a rfc822 part.
@@ -211,7 +211,7 @@ qall!
            '3A0EC103@F1D05308.F10D3E6A00000000.png' in
            {q.get_filename() for q in inner.walk() if q.get_filename()})
 
-    # 6. Compose a NEW message via vim, :Attach a file, send — covers mail#send
+    # 6. Compose a NEW message via vim, :Attach a file, send — covers mail#send#send
     #    emitting X-Mail-Attach and the multipart/mixed build end to end.
     probe = STORE / 'attach_probe.bin'
     probe.write_bytes(b'PROBE-BYTES-123')
@@ -226,11 +226,11 @@ runtime autoload/mail.vim
 let g:mail_root = '{STORE}'
 let g:mail_from = 'Me <me@example.com>'
 try
-  call mail#compose()
+  call mail#compose#compose()
   call setline(1, 'To: someone@example.com')
   call setline(2, 'Subject: with attachment')
-  call mail#attach('{probe}')
-  call mail#send()
+  call mail#attach#attach('{probe}')
+  call mail#send#send()
   call writefile(['OK'], '{cstatus}')
 catch
   call writefile(['ERR: ' . v:exception . ' @ ' . v:throwpoint], '{cstatus}')

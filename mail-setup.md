@@ -209,7 +209,7 @@ has a `body.html`):
   `multipart/related` parts (sniffed to a real `image/*` type) so they render in
   every client. Top-posting, but the quoted original is reproduced without loss.
 
-The reply quote is sourced by `mail#reply()` from `mail_store.py quote <dir>` —
+The reply quote is sourced by `mail#compose#reply()` from `mail_store.py quote <dir>` —
 the sender's own `text/plain` (clean), or a footnote-free html render for
 HTML-only mail — **not** the annotated `body.txt`. The `On … wrote:` attribution
 is added in the compose buffer (editable before sending). Threading is carried by
@@ -227,9 +227,10 @@ via `sendmail -t`, the message is ingested into `<sent-dir>` (default
 
 ```
 <wherever you cloned the repo>/
-    plugin/mail.vim           :Mail command
-    autoload/mail.vim         all logic: listing, preview, open, mark, delete,
-                              move, reply, compose, send, fetch, thread
+    plugin/mail.vim           :Mail command + g:mail_* setup
+    autoload/mail/*.vim       all logic, one module per topic: mailbox, util,
+                              index, actions, thread, view, compose, send,
+                              attach, fetch (functions are mail#<topic>#fn)
     ftplugin/mail-index.vim   keymaps + BufWriteCmd for the index buffer
     ftplugin/mail-compose.vim :w sends the compose buffer
     syntax/mail-index.vim     conceals the hidden per-line message id
@@ -339,7 +340,7 @@ ingested into `/path/to/Mail/sent`. Threading is preserved by the
 `In-Reply-To`/`References` headers, not by MIME type.
 
 **Forwarding** comes in two modes, both new-thread (no `In-Reply-To`/
-`References`), signalled by a control header `mail#send` writes and `send_mail`
+`References`), signalled by a control header `mail#send#send` writes and `send_mail`
 strips:
 - **`f` inline** (`X-Forward-Inline`): the original's body is appended to the
   plain part (unquoted) and embedded in the HTML part (with its inline images),
@@ -407,13 +408,13 @@ Current suites:
 | `tests/test_ingest.py` | Ingestion of a **real** complex message (`fixtures/embrace-the-chaos/raw.eml` — 2 tables, inline cid image, external image, businesscard link, `.ics`): attachments downloaded, links footnoted, body parsed, `quote_text` clean, and `viewhtml`/`_inline_cid_data_uris` turning `cid:` into `data:` URIs while the stored `body.html` stays pristine. |
 | `tests/test_reply_integration.py` | Full pipeline on that real message: CLI ingest → real headless `vim` replies (top-post) **and forwards both ways** + sends (fake `sendmail`) → sent box verified — reply (multipart/alternative, tables embedded, cid as multipart/related, clean `>` quote, threading), inline forward (tables embedded, `.ics` re-attached, new thread), and as-attachment forward (`message/rfc822`, attachments intact). |
 | `tests/test_attach.py` | `mail_store.py` attachments + inline images: `X-Mail-Attach` → `multipart/mixed`, `X-Mail-Inline` → `[img N]` becomes a `cid` image (`multipart/related`), combined, content-type guessing, headers stripped, missing-file errors. |
-| `tests/test_compose.vim` | Compose buffers: `mail#reply()`, both forward modes, attachments (`Attachments:` footer + `mail#_split_attachments` resolve/strip), and inline images (`mail#_inline_images` resolution + `mail#paste_image` marker insert, clipboard grab stubbed). |
-| `tests/test_clipboard.vim` | REAL clipboard integration: puts a PNG on the system clipboard and verifies the unstubbed `mail#_clipboard_image` captures it + `mail#paste_image` inserts a marker; also puts two file URLs on the clipboard and checks `mail#_clipboard_files` returns both (multi-file). Skips where no image-clipboard tool exists; restores the text clipboard on macOS. |
+| `tests/test_compose.vim` | Compose buffers: `mail#compose#reply()`, both forward modes, attachments (`Attachments:` footer + `mail#send#_split_attachments` resolve/strip), and inline images (`mail#send#_inline_images` resolution + `mail#attach#paste_image` marker insert, clipboard grab stubbed). |
+| `tests/test_clipboard.vim` | REAL clipboard integration: puts a PNG on the system clipboard and verifies the unstubbed `mail#attach#_clipboard_image` captures it + `mail#attach#paste_image` inserts a marker; also puts two file URLs on the clipboard and checks `mail#attach#_clipboard_files` returns both (multi-file). Skips where no image-clipboard tool exists; restores the text clipboard on macOS. |
 
 Fixtures: real sample messages live one directory per case under
 `tests/fixtures/<case>/` (each holds a `raw.eml` and any static assets);
 `tests/_fixtures.py` (`raw(case)`) loads them. Not run as tests themselves.
-| `tests/test_move.vim` | `mail#move()`: clean move succeeds; collision reports an error and keeps the message; and the staged-edit guard — Cancel aborts (keeping pending edits), Discard proceeds, Save commits the staged edits (to trash) then moves. |
+| `tests/test_move.vim` | `mail#actions#move()`: clean move succeeds; collision reports an error and keeps the message; and the staged-edit guard — Cancel aborts (keeping pending edits), Discard proceeds, Save commits the staged edits (to trash) then moves. |
 
 ### Headless Vim test convention
 
@@ -428,20 +429,20 @@ exit code:
   after — **never** touch a real mail store.
 - Run a single file directly: `vim -u NONE -N -es -S tests/test_move.vim`.
 
-**Gotcha — stubbing autoloaded functions.** `mail#*` functions are loaded
-lazily: the first `mail#…` call re-sources `autoload/mail.vim`, which would
-clobber any stub defined beforehand (e.g. replacing `mail#_prompt_mailbox`
-to skip the interactive `input()`). Force the autoload to load *before*
-stubbing:
+**Gotcha — stubbing autoloaded functions.** `mail#<topic>#*` functions are loaded
+lazily per module: the first call into a topic re-sources its
+`autoload/mail/<topic>.vim`, which would clobber any stub defined beforehand (e.g.
+replacing `mail#mailbox#_prompt_mailbox` to skip the interactive `input()`). Force
+*all* modules to load *before* stubbing — `runtime!` with a glob loads every one:
 
 ```vim
 runtime plugin/mail.vim
-runtime autoload/mail.vim     " load now, so the stub below survives
-function! mail#_prompt_mailbox(prompt, default) abort
+runtime! autoload/mail/*.vim   " load all now, so the stub below survives
+function! mail#mailbox#_prompt_mailbox(prompt, default) abort
   return 'history'            " no interactive input() in batch mode
 endfunction
 ```
 
 Also note `feedkeys()` does not reliably drive operator-pending mappings or
 `input()` in `-es` batch mode — call the underlying functions directly
-(e.g. `mail#ToggleMarkOperator('line')`) instead.
+(e.g. `mail#actions#ToggleMarkOperator('line')`) instead.

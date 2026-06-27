@@ -25,8 +25,17 @@ All MIME work is in `mail_store.py` (Python, in this repo). The Vim plugin
 reads only `meta` and `body.txt`; it never parses MIME itself.
 
 ```
-plugin/mail.vim           :Mail command
-autoload/mail.vim         all logic
+plugin/mail.vim           :Mail command + g:mail_* setup (repo root, python cmd)
+autoload/mail/mailbox.vim mailbox path resolution, completion, prompting
+autoload/mail/util.vim    shared helpers (py_cmd)
+autoload/mail/index.vim   index buffer: render, batched redraw, line<->entry
+autoload/mail/actions.vim staged actions: marks, read/unread, delete (:w), move
+autoload/mail/thread.vim  cross-mailbox message-id index
+autoload/mail/view.vim    reading: preview, full open, html/mime view, search
+autoload/mail/compose.vim compose, reply, forward
+autoload/mail/send.vim    assemble + send the compose buffer
+autoload/mail/attach.vim  attachments + inline images (+ clipboard)
+autoload/mail/fetch.vim   async fetchmail
 ftplugin/mail-index.vim   keymaps + BufWriteCmd
 ftplugin/mail-compose.vim :w sends
 syntax/mail-index.vim     conceals the hidden per-line message id
@@ -36,8 +45,16 @@ setup.sh                  one-off: prints vimrc + fetchmailrc config for this cl
 Makefile                  `make test` runs the whole suite
 tests/run.sh              test runner: auto-discovers tests/test_*.{py,vim}
 tests/test_reply.py       reply/threading suite (Python)
-tests/test_move.vim       mail#move() suite (headless Vim, assert_*/v:errors)
+tests/test_move.vim       mail#actions#move() suite (headless Vim, assert_*/v:errors)
 ```
+
+**Autoload namespacing.** Logic is split into `autoload/mail/<topic>.vim`, so
+functions are `mail#<topic>#fn()` (e.g. `mail#index#refresh()`,
+`mail#compose#reply()`). Vim lazy-loads each module on first call. Script-local
+state (`s:`) is file-scoped, so each module owns its own state; the two
+cross-module touchpoints go through accessors — `mail#thread#invalidate()` (called
+by `mail#index#refresh()` to drop the msgid cache) and `mail#index#refresh_for(dir)`
+(called by `mail#fetch#_fetch_exit_cb()` to repaint the index after a fetch).
 
 **Running tests:** `make test` (or `sh tests/run.sh`) runs every
 `tests/test_*.py` and `tests/test_*.vim`; exits nonzero if any fail. Add a
@@ -46,7 +63,7 @@ runner picks it up automatically. Headless Vim tests use the built-in
 `assert_*` API, collect into `v:errors`, and `qall!`/`cquit!` to signal
 pass/fail via exit code.
 
-**No hardcoded paths.** `autoload/mail.vim` derives its own repo root via
+**No hardcoded paths.** `plugin/mail.vim` derives the repo root via
 `expand('<sfile>:p:h:h')`, so `mail_store.py` is found wherever the repo is
 cloned. `g:mail_python` defaults to `python3` on `PATH` (`exepath`), and
 `g:mail_store_py` to `<repo>/mail_store.py`; `g:mail_store_cmd` is built from
@@ -63,26 +80,26 @@ Each line: `<id>\t<N|space><*|space> <date>  <from>  <subject>`
 - `dd`/`d3j`/`:g//d` work natively — Vim's own delete machinery
 - `b:mail_entries` = disk baseline (`[{id, dir, read, meta}]`), ordered by original sort
 - Buffer text is the **authoritative staged state** for both read/unread and deletions
-- `b:mail_entries[idx].read` = last-saved disk state (only updated by `mail#refresh()`)
+- `b:mail_entries[idx].read` = last-saved disk state (only updated by `mail#index#refresh()`)
 
 ## `:w` semantics (buffer as source of truth)
 
-`BufWriteCmd` calls `mail#write()` which does a single reconciliation pass:
+`BufWriteCmd` calls `mail#actions#write()` which does a single reconciliation pass:
 - Lines missing from buffer → message dir moved to `/path/to/Mail/trash` (or deleted if already in trash)
 - Read indicator differs from disk → `.read` file written or deleted
 
 Both are staged until `:w`. `u` reverts either before committing.
-`mail#refresh()` ends with `setlocal nomodified` (a just-refreshed buffer matches
+`mail#index#refresh()` ends with `setlocal nomodified` (a just-refreshed buffer matches
 disk), so `&modified` reliably means "staged, uncommitted changes exist."
 
 **Staged-edit guard.** `M` (move) and `<leader>f` (fetch) mutate disk and then
-`mail#refresh()`, which rebuilds the buffer from disk and would silently discard
-uncommitted staged edits. Both first call `mail#_ok_to_refresh(action)`: if
-`&modified`, it asks via `mail#_confirm()` — **Save / Discard / Cancel**. *Save*
-runs `mail#write()` (commits the staged edits, then proceeds); *Discard* proceeds
-and lets the refresh drop them; *Cancel* aborts. `mail#_confirm` returns
+`mail#index#refresh()`, which rebuilds the buffer from disk and would silently discard
+uncommitted staged edits. Both first call `mail#actions#_ok_to_refresh(action)`: if
+`&modified`, it asks via `mail#actions#_confirm()` — **Save / Discard / Cancel**. *Save*
+runs `mail#actions#write()` (commits the staged edits, then proceeds); *Discard* proceeds
+and lets the refresh drop them; *Cancel* aborts. `mail#actions#_confirm` returns
 `'save'`/`'discard'`/`'cancel'` and wraps `confirm()` so tests can stub it.
-Because *Save* rebuilds `b:mail_entries`, `mail#move()` captures its targets by id
+Because *Save* rebuilds `b:mail_entries`, `mail#actions#move()` captures its targets by id
 **before** the guard and re-resolves them after.
 (`R` and `:w`'s own refresh are not guarded — `R` is an explicit discard, and
 `:w` refreshes after committing.) *Future:* update the buffer incrementally
@@ -94,12 +111,12 @@ discard prompt — deferred; the guard is the floor.
 **ID-based line resolution (critical)**
 After `dd`, buffer line N no longer corresponds to `b:mail_entries[N-1]`. All
 functions that need to find an entry from a buffer line extract the concealed
-`id` prefix and look it up via `mail#_id_to_idx()` (returns `{id → entry_idx}`).
+`id` prefix and look it up via `mail#index#_id_to_idx()` (returns `{id → entry_idx}`).
 Affected functions: `_current_index`, `_target_indexes`, `_patch_lines`,
 `_set_read`, `_flush_pending`, `ToggleMarkOperator`. Never use `line('.') - 1`
 as a `b:mail_entries` index.
 
-**Batch line updates — `mail#_patch_lines(targets, Fn)`**
+**Batch line updates — `mail#index#_patch_lines(targets, Fn)`**
 - `targets`: `{entry_idx: 1}`; empty = all lines
 - `Fn(read, marked) -> [new_read, new_marked]`
 - Iterates current buffer lines, resolves entry by ID, applies Fn
@@ -115,12 +132,12 @@ Scans buffer for the line whose ID matches `b:mail_entries[idx].id`, updates
 that line directly. O(n) scan but only called once per message open.
 
 **Msgid index cache**
-`mail#_build_msgid_index()` scans `meta` files across all mailboxes to build
+`mail#thread#_build_msgid_index()` scans `meta` files across all mailboxes to build
 `{message-id → dir}` for thread reconstruction. Result cached in `s:msgid_index`;
-invalidated by `mail#refresh()`. Never reads `raw.eml` as fallback.
+invalidated by `mail#index#refresh()`. Never reads `raw.eml` as fallback.
 
-**Header filtering — `mail#_filtered_headers(rawfile)`**
-Shared helper used by both `mail#open_message()` (current message) and thread
+**Header filtering — `mail#view#_filtered_headers(rawfile)`**
+Shared helper used by both `mail#view#open_message()` (current message) and thread
 ancestor reconstruction. Filters to From/To/Cc/Reply-To/Date/Subject only.
 Reply-To suppressed when identical to From.
 
@@ -143,7 +160,7 @@ by **whether `orig_dir/body.html` exists**:
   `image/*` type) — universally rendered, unlike `data:` URIs which Outlook
   blocks and Gmail strips. Top-posting, quoted original reproduced without loss.
 
-Quote sourcing: `mail#reply()` fills the compose buffer with the clean quote from
+Quote sourcing: `mail#compose#reply()` fills the compose buffer with the clean quote from
 `mail_store.py quote <dir>` (`quote_text`: the sender's own `text/plain`, or a
 footnote-free `html_to_text` for HTML-only mail) — **never** the annotated
 `body.txt` with its `Links:`/`[N]` reading-aid footers. The buffer holds an empty
@@ -157,10 +174,10 @@ HTML to embed (class 2); attribution is produced at compose time.
 **Forward — two modes (`f` inline, `F` as-attachment)**
 Both open a compose buffer (shared `s:_forward_buffer`): empty `To:`, `Fwd: …`
 subject, **no** `In-Reply-To`/`References` (new thread), a forwarded-header block
-for the user's note. `mail#send()` writes a control header (stripped by
+for the user's note. `mail#send#send()` writes a control header (stripped by
 `send_mail`, never sent) per mode.
 
-- **`f` — inline** (`mail#forward()`): sets `b:mail_compose_orig_dir` +
+- **`f` — inline** (`mail#compose#forward()`): sets `b:mail_compose_orig_dir` +
   `b:mail_compose_fwd_inline` → header `X-Forward-Inline: 1`. `send_mail`
   **appends** the original body to the plain part (unquoted) via `quote_text`,
   **embeds** `body.html` in the HTML part (class-2 path, cid images as related),
@@ -168,7 +185,7 @@ for the user's note. `mail#send()` writes a control header (stripped by
   `multipart/mixed`. The original is appended at send (not in the buffer) so it
   isn't duplicated against the embedded HTML. A re-render — like Gmail/Outlook
   inline forward, *not* byte-exact.
-- **`F` — as attachment** (`mail#forward_attach()`): sets
+- **`F` — as attachment** (`mail#compose#forward_attach()`): sets
   `b:mail_compose_forward` → header `X-Forward-Dir: <dir>`. `send_mail` attaches
   `<dir>/raw.eml` as a `message/rfc822` part (named from the subject) —
   byte-exact and lossless, opened by the recipient.
@@ -180,25 +197,25 @@ Each attachment shows as a line in a trailing `Attachments:` footer
 delete a footer line → that file isn't sent.
 - `:Attach {paths…}` (buffer-local, `-complete=file`, globs expanded) /
   `<leader>A` (prefilled `:Attach `) — attach by path. `<leader>a` — attach
-  clipboard file(s) (`mail#_clipboard_files`: macOS reads all file URLs via the
+  clipboard file(s) (`mail#attach#_clipboard_files`: macOS reads all file URLs via the
   AppKit bridge `osascript -l JavaScript` / `NSPasteboard.readObjectsForClasses`
   — handles multiple; Linux `wl-paste`/`xclip` `text/uri-list`).
-- On `:w`, `mail#_split_attachments(body_lines)` resolves surviving footer ids →
+- On `:w`, `mail#send#_split_attachments(body_lines)` resolves surviving footer ids →
   paths and **strips the footer from the sent body** (it's a compose affordance,
-  not literal text); `mail#send` emits one `X-Mail-Attach: <path>` per file.
+  not literal text); `mail#send#send` emits one `X-Mail-Attach: <path>` per file.
 - `send_mail` strips `X-Mail-Attach` and adds each file via `add_attachment`
   (content-type from `mimetypes`), wrapping into `multipart/mixed`. The recipient's
   ingestion regenerates the `Attachments:` footer from the MIME parts.
 
-**Inline images (compose buffer)** — `<leader>p`. `mail#paste_image()` grabs an
+**Inline images (compose buffer)** — `<leader>p`. `mail#attach#paste_image()` grabs an
 image from the clipboard: raw image *data* (screenshot) via
-`mail#_clipboard_image` (built-in `osascript` on macOS — coerces the clipboard
+`mail#attach#_clipboard_image` (built-in `osascript` on macOS — coerces the clipboard
 to PNG, no extra tools; `wl-paste`/`xclip` on Linux), else copied image *file(s)*
-(`mail#_clipboard_files`). All-or-nothing: if any clipboard file isn't an image,
+(`mail#attach#_clipboard_files`). All-or-nothing: if any clipboard file isn't an image,
 it warns and adds nothing. Each image is registered inline (`{id, path, inline:1}`)
 and inserts an `[img id]` marker at the cursor (the marker lives in the body, not
-the footer). On `:w`, `mail#_inline_images(body_lines)` finds surviving `[img id]`
-markers and `mail#send` emits `X-Mail-Inline: <id> <path>` per image. `send_mail`
+the footer). On `:w`, `mail#send#_inline_images(body_lines)` finds surviving `[img id]`
+markers and `mail#send#send` emits `X-Mail-Inline: <id> <path>` per image. `send_mail`
 → `_embed_inline_images` replaces `[img id]` in the HTML with
 `<img src="cid:mail-inline-id">` and attaches the bytes as a `multipart/related`
 part (image type sniffed); the plain part keeps the literal `[img id]`. Round-trips:
@@ -264,12 +281,12 @@ Check with `:echo has('job') && has('timers') && has('lambda') && has('conceal')
 | `python3` | Running `mail_store.py` | `brew install python` or system |
 | `osascript` (macOS) / `wl-paste` / `xclip` (Linux) | Clipboard image data + file paths for `<leader>p`/`<leader>a` | macOS built-in; `wl-clipboard` / `xclip` on Linux |
 
-**Clipboard support is macOS-tested only.** The macOS paths (`mail#_clipboard_image`
-via `osascript` PNG coercion; `mail#_clipboard_files` via the AppKit/JXA
+**Clipboard support is macOS-tested only.** The macOS paths (`mail#attach#_clipboard_image`
+via `osascript` PNG coercion; `mail#attach#_clipboard_files` via the AppKit/JXA
 `NSPasteboard` bridge) are built-in and have real integration tests
 (`test_clipboard.vim`). The **Linux paths are written but UNTESTED** and have
 known caveats: they need `xclip` (X11) or `wl-clipboard` (Wayland) installed; and
-`mail#_clipboard_files` reads `text/uri-list`, which **may miss GNOME/Nautilus
+`mail#attach#_clipboard_files` reads `text/uri-list`, which **may miss GNOME/Nautilus
 copies** (those use `x-special/gnome-copied-files`). **Windows is unsupported**
 (no clipboard code). The clipboard test skips where no image-clipboard tool exists,
 so CI green ≠ Linux verified.
@@ -290,18 +307,18 @@ let g:mail_from = 'Your Name <youraddress@gmail.com>'
 
 ## Mailbox prompts
 
-All places that ask for a mailbox name go through `mail#_prompt_mailbox(prompt, default)`:
-- `mail#move()` — `M` keymap
-- `mail#fetch()` — `<leader>f` keymap
-- `:Mail` command — uses `-complete=customlist,mail#_complete_mailbox`
+All places that ask for a mailbox name go through `mail#mailbox#_prompt_mailbox(prompt, default)`:
+- `mail#actions#move()` — `M` keymap
+- `mail#fetch#fetch()` — `<leader>f` keymap
+- `:Mail` command — uses `-complete=customlist,mail#mailbox#_complete_mailbox`
 
-`mail#_complete_mailbox(arglead, cmdline, cursorpos)` returns a List of dir basenames under
-`g:mail_root` filtered by arglead. `mail#_complete_mailbox_str` is the `custom,` variant
+`mail#mailbox#_complete_mailbox(arglead, cmdline, cursorpos)` returns a List of dir basenames under
+`g:mail_root` filtered by arglead. `mail#mailbox#_complete_mailbox_str` is the `custom,` variant
 (newline-joined) used by `input()`. Never call `input()` directly for mailbox names.
 
 ## Reply-all
 
-`mail#reply()` reads `meta.cc`, strips any address matching `g:mail_from`, and prefills
+`mail#compose#reply()` reads `meta.cc`, strips any address matching `g:mail_from`, and prefills
 `Cc:` in the compose buffer between `To:` and `Subject:`. Only messages ingested after
 the `Cc` field was added to `_write_meta` will have it in meta.
 
