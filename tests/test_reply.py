@@ -1,5 +1,5 @@
 """
-Test suite for mail_store.py send (compose/reply).
+Test suite for mailstore.send (compose/reply).
 
 Outgoing mail is multipart/alternative: a verbatim text/plain part plus a
 text/html part that mirrors the plain body IN ORDER (quoted runs -> nested

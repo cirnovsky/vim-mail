@@ -1,5 +1,5 @@
 """
-Test mail_store.py attachment + inline-image handling via control headers
+Test mailstore.send attachment + inline-image handling via control headers
 (stripped, never sent):
   - X-Mail-Attach: <path>      → file attachment (multipart/mixed)
   - X-Mail-Inline: <id> <path> → '[img id]' becomes a cid image (multipart/related)

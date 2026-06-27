@@ -1,5 +1,5 @@
 """
-Test mail_store.py ingestion on a REAL complex message
+Test mailstore ingestion on a REAL complex message
 (tests/fixtures/embrace-the-chaos/raw.eml — 2 tables, an inline cid image, an
 external image, a businesscard link, a .ics attachment): does it download
 attachments, footnote links, and parse the body correctly?

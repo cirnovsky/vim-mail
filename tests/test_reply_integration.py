@@ -4,7 +4,7 @@ End-to-end reply + forward test on the REAL complex message
 opens it and replies (top-post) / forwards -> CLI send (sendmail faked) -> CLI
 ingest into the sent box -> assert each sent message meets requirements.
 
-Exercises the whole pipeline together: mail_store ingestion, mail#compose#reply quote
+Exercises the whole pipeline together: mailstore ingestion, mail#compose#reply quote
 sourcing, mail#compose#forward (inline + as-attachment), mail#compose#compose + :Attach, and
 mail#send#send (class-2 MIME, message/rfc822 forward, X-Mail-Attach attachments).
 
