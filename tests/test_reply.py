@@ -38,9 +38,9 @@ import sys
 import tempfile
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / 'scripts'))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-import mail_store  # noqa: E402
+from mailstore import ingest, quote, send  # noqa: E402
 import _fixtures   # noqa: E402
 
 PASS = 0
@@ -76,7 +76,7 @@ def build_compose(headers, body):
     return hdr + '\n\n' + body
 
 def send_compose(compose_text, orig_dir=None):
-    """Invoke the real mail_store.send_mail with sendmail/ingest stubbed,
+    """Invoke the real send.send_mail with sendmail/ingest stubbed,
     and return the parsed message that WOULD have been delivered."""
     captured = {}
 
@@ -90,18 +90,18 @@ def send_compose(compose_text, orig_dir=None):
 
     import subprocess
     real_run = subprocess.run
-    real_ingest = mail_store.ingest_one
+    real_ingest = ingest.ingest_one
     subprocess.run = fake_run
-    mail_store.ingest_one = lambda *args, **kwargs: None
+    ingest.ingest_one = lambda *args, **kwargs: None
     try:
         with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
             f.write(compose_text)
             compose_path = Path(f.name)
-        mail_store.send_mail(compose_path, orig_dir, None)
+        send.send_mail(compose_path, orig_dir, None)
         compose_path.unlink()
     finally:
         subprocess.run = real_run
-        mail_store.ingest_one = real_ingest
+        ingest.ingest_one = real_ingest
     return email.message_from_bytes(captured['bytes'], policy=email.policy.default)
 
 def parts_of(msg):
@@ -245,13 +245,13 @@ m['Subject'] = 'x'
 m.set_content('Guanyu Wang\nhello')                       # plain part (nbsp)
 m.add_alternative('<p>Guanyu Wang <a href="http://x.com/very/long/url">site</a></p>',
                   subtype='html')
-q = mail_store.quote_text(m.as_bytes())
+q = quote.quote_text(m.as_bytes())
 ok('prefers sender text/plain', q == 'Guanyu Wang\nhello', repr(q))
 ok('no Links footer in quote', 'Links:' not in q and '[1]' not in q)
 
 raw_html_only = (b'Subject: y\r\nMIME-Version: 1.0\r\nContent-Type: text/html\r\n\r\n'
                  b'<p>see <a href="http://example.com/very/long/url">this link</a></p>')
-q2 = mail_store.quote_text(raw_html_only)
+q2 = quote.quote_text(raw_html_only)
 ok('html-only quote is footnote-free', 'Links:' not in q2 and '[1]' not in q2, repr(q2))
 ok('html-only keeps link text', 'this link' in q2)
 
@@ -319,7 +319,7 @@ print('\n=== Case 11: inline forward (f) — embed original + re-attach files ==
 with tempfile.TemporaryDirectory() as tmp:
     box = Path(tmp) / 'inbox'
     box.mkdir()
-    od = mail_store.ingest_one(_fixtures.raw('embrace-the-chaos'), box)
+    od = ingest.ingest_one(_fixtures.raw('embrace-the-chaos'), box)
     compose = build_compose(
         {'To': 'new@example.com', 'Subject': 'Fwd: EMBRACE THE CHAOS',
          'X-Forward-Inline': '1'},

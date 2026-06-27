@@ -140,7 +140,7 @@ Your `~/.fetchmailrc` should look like this (keep it `chmod 600`):
 poll imap.gmail.com protocol IMAP
     user "you@gmail.com" with password "your-app-password" is "your-mac-username" here
     ssl
-    mda "/path/to/python3 /path/to/vim-mail/mail_store.py ingest-stdin /path/to/Mail/inbox"
+    mda "/path/to/python3 /path/to/vim-mail/scripts/mail_store.py ingest-stdin /path/to/Mail/inbox"
 ```
 
 ```bash

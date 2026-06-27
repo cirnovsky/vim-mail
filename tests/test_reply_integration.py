@@ -56,7 +56,7 @@ try:
     inbox.mkdir(parents=True)
 
     # 1. Ingest the real message via the real CLI.
-    r = subprocess.run([PY, str(REPO / 'mail_store.py'), 'ingest-stdin', str(inbox)],
+    r = subprocess.run([PY, str(REPO / 'scripts' / 'mail_store.py'), 'ingest-stdin', str(inbox)],
                        input=RAW, capture_output=True)
     ok('CLI ingest succeeded', r.returncode == 0, r.stderr.decode('utf-8', 'replace'))
     msg_dirs = [d for d in inbox.iterdir() if d.is_dir()]
@@ -76,7 +76,7 @@ try:
     driver.write_text(f"""
 set rtp+={REPO}
 let g:mail_python = '{PY}'
-let g:mail_store_py = '{REPO}/mail_store.py'
+let g:mail_store_py = '{REPO}/scripts/mail_store.py'
 runtime plugin/mail.vim
 runtime autoload/mail.vim
 let g:mail_root = '{STORE}'
@@ -153,7 +153,7 @@ qall!
         drv.write_text(f"""
 set rtp+={REPO}
 let g:mail_python = '{PY}'
-let g:mail_store_py = '{REPO}/mail_store.py'
+let g:mail_store_py = '{REPO}/scripts/mail_store.py'
 runtime plugin/mail.vim
 runtime autoload/mail.vim
 let g:mail_root = '{STORE}'
@@ -220,7 +220,7 @@ qall!
     cdriver.write_text(f"""
 set rtp+={REPO}
 let g:mail_python = '{PY}'
-let g:mail_store_py = '{REPO}/mail_store.py'
+let g:mail_store_py = '{REPO}/scripts/mail_store.py'
 runtime plugin/mail.vim
 runtime autoload/mail.vim
 let g:mail_root = '{STORE}'

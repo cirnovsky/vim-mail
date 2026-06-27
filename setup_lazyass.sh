@@ -46,7 +46,7 @@ while [ -h "$SELF" ]; do
   case $SELF in /*) ;; *) SELF=$d/$SELF ;; esac
 done
 REPO=$(cd -P "$(dirname "$SELF")" && pwd)
-[ -f "$REPO/mail_store.py" ] || die "mail_store.py not found next to this script ($REPO)"
+[ -f "$REPO/scripts/mail_store.py" ] || die "scripts/mail_store.py not found in this repo ($REPO)"
 
 # --- precaution / confirm ---------------------------------------------------
 warn "This will edit system files (/etc/postfix/main.cf + sasl_passwd), (re)start"
@@ -174,7 +174,7 @@ cat > "$RC" <<RCEOF
 poll imap.gmail.com protocol IMAP
     user "$EMAIL" with password "$APPPW" is "$USER_NAME" here
     ssl
-    mda "$PYTHON $REPO/mail_store.py ingest-stdin $MAIL_ROOT/inbox"
+    mda "$PYTHON $REPO/scripts/mail_store.py ingest-stdin $MAIL_ROOT/inbox"
 RCEOF
 chmod 600 "$RC"
 

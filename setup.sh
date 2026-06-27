@@ -27,7 +27,7 @@ REPO=$(cd -P "$(dirname "$SELF")" && pwd)
 PYTHON=$(command -v python3 || true)
 [ -n "$PYTHON" ] || { echo "error: python3 not found on PATH" >&2; exit 1; }
 
-STORE="$REPO/mail_store.py"
+STORE="$REPO/scripts/mail_store.py"
 [ -f "$STORE" ] || { echo "error: mail_store.py not found at $STORE" >&2; exit 1; }
 
 MAIL_ROOT="${MAIL_ROOT:-$HOME/Mail}"

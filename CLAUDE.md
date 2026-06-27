@@ -21,8 +21,9 @@ Directory basename is the stable per-line ID in the index buffer.
 
 ## Architecture
 
-All MIME work is in `mail_store.py` (Python, in this repo). The Vim plugin
-reads only `meta` and `body.txt`; it never parses MIME itself.
+All MIME work is in the `scripts/mailstore/` package (Python; entry point
+`scripts/mail_store.py`). The Vim plugin reads only `meta` and `body.txt`; it
+never parses MIME itself.
 
 ```
 plugin/mail.vim           :Mail command + g:mail_* setup (repo root, python cmd)
@@ -39,7 +40,8 @@ autoload/mail/fetch.vim   async fetchmail
 ftplugin/mail-index.vim   keymaps + BufWriteCmd
 ftplugin/mail-compose.vim :w sends
 syntax/mail-index.vim     conceals the hidden per-line message id
-mail_store.py             Python backend: all MIME work (migrate/ingest-stdin/send)
+scripts/mail_store.py     Python backend entry point (thin shim)
+scripts/mailstore/        backend package: htmltext/ingest/quote/images/send/cli
 mail-setup.md             full backend setup doc (Postfix relay, fetchmail, store)
 setup.sh                  one-off: prints vimrc + fetchmailrc config for this clone
 Makefile                  `make test` runs the whole suite
@@ -66,8 +68,8 @@ pass/fail via exit code.
 **No hardcoded paths.** `plugin/mail.vim` derives the repo root via
 `expand('<sfile>:p:h:h')`, so `mail_store.py` is found wherever the repo is
 cloned. `g:mail_python` defaults to `python3` on `PATH` (`exepath`), and
-`g:mail_store_py` to `<repo>/mail_store.py`; `g:mail_store_cmd` is built from
-both. All three are overridable in vimrc. The only out-of-repo path is the
+`g:mail_store_py` to `<repo>/scripts/mail_store.py`; `g:mail_store_cmd` is built
+from both. All three are overridable in vimrc. The only out-of-repo path is the
 `mda` line in `~/.fetchmailrc` — run `./setup.sh` (optionally `--patch`) to
 generate/update it for the current machine.
 

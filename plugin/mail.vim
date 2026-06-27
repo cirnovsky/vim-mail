@@ -13,10 +13,10 @@ let g:mail_from = get(g:, 'mail_from', '')
 let s:plugin_root = expand('<sfile>:p:h:h')
 
 " g:mail_python:   python3 interpreter (resolved from PATH; override in vimrc).
-" g:mail_store_py: path to mail_store.py (defaults to the copy in this repo).
+" g:mail_store_py: path to mail_store.py (defaults to scripts/ in this repo).
 let g:mail_python = get(g:, 'mail_python',
       \ exepath('python3') !=# '' ? exepath('python3') : 'python3')
-let g:mail_store_py = get(g:, 'mail_store_py', s:plugin_root . '/mail_store.py')
+let g:mail_store_py = get(g:, 'mail_store_py', s:plugin_root . '/scripts/mail_store.py')
 
 " g:mail_store_cmd: base command used to build the --mda arg for fetchmail.
 " Derived from the two above; override directly if you need something custom.

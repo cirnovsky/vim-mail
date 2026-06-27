@@ -13,8 +13,8 @@ import sys
 import tempfile
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-import mail_store  # noqa: E402
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / 'scripts'))
+from mailstore import ingest, send  # noqa: E402
 
 PASS = 0
 FAIL = 0
@@ -40,18 +40,18 @@ def send_compose(compose_text):
         return _R()
 
     import subprocess
-    real_run, real_ingest = subprocess.run, mail_store.ingest_one
+    real_run, real_ingest = subprocess.run, ingest.ingest_one
     subprocess.run = fake_run
-    mail_store.ingest_one = lambda *a, **k: None
+    ingest.ingest_one = lambda *a, **k: None
     try:
         with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
             f.write(compose_text)
             cp = Path(f.name)
-        mail_store.send_mail(cp, None, None)
+        send.send_mail(cp, None, None)
         cp.unlink()
     finally:
         subprocess.run = real_run
-        mail_store.ingest_one = real_ingest
+        ingest.ingest_one = real_ingest
     return email.message_from_bytes(captured['bytes'], policy=email.policy.default)
 
 

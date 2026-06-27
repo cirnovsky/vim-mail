@@ -12,9 +12,9 @@ import tempfile
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-sys.path.insert(0, str(HERE.parent))
+sys.path.insert(0, str(HERE.parent / 'scripts'))
 sys.path.insert(0, str(HERE))
-import mail_store        # noqa: E402
+from mailstore import ingest, images, quote  # noqa: E402
 import _fixtures         # noqa: E402
 
 CASE = 'embrace-the-chaos'
@@ -40,7 +40,7 @@ print('\n=== Ingest the real complex message ===')
 with tempfile.TemporaryDirectory() as tmp:
     box = Path(tmp) / 'inbox'
     box.mkdir()
-    msg_dir = mail_store.ingest_one(RAW, box)
+    msg_dir = ingest.ingest_one(RAW, box)
     ok('ingest created a message dir', msg_dir is not None and msg_dir.is_dir())
     assert msg_dir is not None
 
@@ -78,18 +78,18 @@ with tempfile.TemporaryDirectory() as tmp:
     # --- viewhtml: cid images become data: URIs for browser viewing ---
     stored_html = (msg_dir / 'body.html').read_text()
     ok('stored body.html keeps cid: (pristine)', 'cid:' in stored_html)
-    viewed = mail_store._inline_cid_data_uris(stored_html, RAW)
+    viewed = images._inline_cid_data_uris(stored_html, RAW)
     ok('viewhtml inlines cid -> data: URI', 'data:' in viewed and ';base64,' in viewed)
     ok('no cid: image ref left in viewed html', 'cid:3A0EC103' not in viewed)
     import subprocess
-    cli = subprocess.run([sys.executable, str(HERE.parent / 'mail_store.py'),
+    cli = subprocess.run([sys.executable, str(HERE.parent / 'scripts' / 'mail_store.py'),
                           'viewhtml', str(msg_dir)], capture_output=True, text=True)
     ok('viewhtml CLI emits data: URI', cli.returncode == 0 and 'data:image' in cli.stdout,
        cli.stderr)
 
 
 print('\n=== quote_text on the real message is clean ===')
-q = mail_store.quote_text(RAW)
+q = quote.quote_text(RAW)
 ok('quote uses sender text/plain', q.splitlines()[:3] == ['1314', '5', '456'], repr(q[:40]))
 ok('quote has no [img]/Links/Attachments noise',
    '[img' not in q and 'Links:' not in q and 'Attachments:' not in q)

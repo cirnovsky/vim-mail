@@ -102,7 +102,7 @@ store via an MDA, instead of local Postfix delivery into `/var/mail/$USER`:
 poll imap.gmail.com protocol IMAP
     user "youraddress@gmail.com" with password "your-app-password" is "yourlocalunixuser" here
     ssl
-    mda "/path/to/python3 /path/to/vim-mail/mail_store.py ingest-stdin /path/to/Mail/inbox"
+    mda "/path/to/python3 /path/to/vim-mail/scripts/mail_store.py ingest-stdin /path/to/Mail/inbox"
 ```
 
 This `mda` line is the only path that lives outside the repo and can't be
@@ -145,7 +145,7 @@ Key implementation points of the archive script:
   so an interrupted run can resume without re-downloading.
 
 To fold that archive into the store, run it through the migrator:
-`python3 mail_store.py migrate /path/to/Mail/gmail_archive.mbox <mailbox-dir>`.
+`python3 scripts/mail_store.py migrate /path/to/Mail/gmail_archive.mbox <mailbox-dir>`.
 
 ## 4. The vim-mail frontend
 
@@ -178,22 +178,24 @@ The directory name doubles as the dedup key (ingestion is resumable) and
 as the stable per-line id the Vim index buffer uses to survive `dd`-style
 edits.
 
-### `mail_store.py`
+### `scripts/mail_store.py`
 
-Ships in the plugin repo alongside the Vim files. All MIME parsing/decoding
-lives in Python; the Vim side only reads the small `meta`/`body.txt` files
-and shells out for the rest. The plugin finds this file relative to its own
-repo root, so it works wherever you clone the repo — no hardcoded path.
+Ships in the plugin repo under `scripts/`. The entry point `scripts/mail_store.py`
+is a thin shim; the actual MIME work lives in the `scripts/mailstore/` package
+(`htmltext`, `ingest`, `quote`, `images`, `send`, `cli`). All parsing/decoding is
+in Python; the Vim side only reads the small `meta`/`body.txt` files and shells
+out for the rest. The plugin finds the entry point relative to its own repo root,
+so it works wherever you clone the repo — no hardcoded path.
 
 ```bash
 # One-time mbox → store conversion
-python3 mail_store.py migrate <mbox-file> <mailbox-dir>
+python3 scripts/mail_store.py migrate <mbox-file> <mailbox-dir>
 
 # Explode one RFC822 message from stdin (used by fetchmail MDA)
-python3 mail_store.py ingest-stdin <mailbox-dir>
+python3 scripts/mail_store.py ingest-stdin <mailbox-dir>
 
 # Build and deliver a reply or new message (used by vim-mail on :w)
-python3 mail_store.py send <compose-file> [<orig-msg-dir> [<sent-dir>]]
+python3 scripts/mail_store.py send <compose-file> [<orig-msg-dir> [<sent-dir>]]
 ```
 
 `send` builds a `multipart/alternative` message. The **text/plain** part is the
@@ -234,7 +236,8 @@ via `sendmail -t`, the message is ingested into `<sent-dir>` (default
     ftplugin/mail-index.vim   keymaps + BufWriteCmd for the index buffer
     ftplugin/mail-compose.vim :w sends the compose buffer
     syntax/mail-index.vim     conceals the hidden per-line message id
-    mail_store.py             Python backend (migrate/ingest-stdin/send)
+    scripts/mail_store.py     Python backend entry point (thin shim)
+    scripts/mailstore/        backend package: htmltext, ingest, quote, images, send, cli
     mail-setup.md             this document
     setup.sh                  prints/patches vimrc + fetchmailrc for this clone
     setup_lazyass.sh          macOS one-shot: prompts email+password, does deps + /etc relay + fetchmailrc
@@ -257,7 +260,7 @@ let g:mail_from = 'Your Name <youraddress@gmail.com>'  " From: header on outgoin
 
 " Optional — auto-detected otherwise (python3 on PATH, mail_store.py in repo):
 " let g:mail_python   = '/usr/bin/python3'
-" let g:mail_store_py = '/path/to/vim-mail/mail_store.py'
+" let g:mail_store_py = '/path/to/vim-mail/scripts/mail_store.py'
 ```
 
 The plugin needs no path configuration: it locates `mail_store.py` relative
