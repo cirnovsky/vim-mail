@@ -2,6 +2,7 @@
 
 import sys
 from pathlib import Path
+from typing import Optional
 
 from .images import _inline_cid_data_uris
 from .ingest import ingest_one, migrate_mbox
