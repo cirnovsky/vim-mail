@@ -44,8 +44,9 @@ scripts/mail_store.py     Python backend entry point (thin shim)
 scripts/mailstore/        backend package: htmltext/ingest/quote/images/send/cli
 mail-setup.md             full backend setup doc (Postfix relay, fetchmail, store)
 setup.sh                  one-off: prints vimrc + fetchmailrc config for this clone
-Makefile                  `make test` runs the whole suite
+Makefile                  `make test` (local) / `make test-linux` (Docker)
 tests/run.sh              test runner: auto-discovers tests/test_*.{py,vim}
+tests/Dockerfile          Debian image to run the suite under Linux
 tests/test_reply.py       reply/threading suite (Python)
 tests/test_move.vim       mail#actions#move() suite (headless Vim, assert_*/v:errors)
 ```
@@ -64,6 +65,16 @@ new suite by dropping a `test_*.py` or `test_*.vim` file in `tests/` — the
 runner picks it up automatically. Headless Vim tests use the built-in
 `assert_*` API, collect into `v:errors`, and `qall!`/`cquit!` to signal
 pass/fail via exit code.
+
+**`make test-linux`** builds `tests/Dockerfile` (Debian + `vim-nox`, Python,
+`xvfb`, `xclip`) and runs the same suite under Linux, bind-mounting the repo (no
+rebuild between runs). It runs under `xvfb-run` so `xclip` has a display and
+`test_clipboard.vim` exercises the real Linux clipboard-image path instead of
+skipping. This catches cross-platform breakage the macOS run can't — e.g. a
+missing `from typing import Optional` masked locally by Python 3.14's lazy
+annotation evaluation but fatal on the container's 3.13. Not covered:
+`setup_lazyass.sh`'s Linux branch (needs systemd/sudo/real Gmail), the
+`wl-clipboard`/Wayland path, and the clipboard *file*-list path.
 
 **No hardcoded paths.** `plugin/mail.vim` derives the repo root via
 `expand('<sfile>:p:h:h')`, so `mail_store.py` is found wherever the repo is

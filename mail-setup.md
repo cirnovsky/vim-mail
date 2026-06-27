@@ -396,12 +396,23 @@ Run the whole suite from the repo root:
 
 ```bash
 make test            # or: sh tests/run.sh
+make test-linux      # same suite, inside a Linux Docker container
 ```
 
 `tests/run.sh` auto-discovers and runs every `tests/test_*.py` (Python) and
 `tests/test_*.vim` (headless Vim). It exits non-zero if any suite fails, so
 it works in CI. Add a new suite by dropping a `test_*.py` or `test_*.vim`
 file in `tests/` — no wiring needed.
+
+`make test-linux` builds `tests/Dockerfile` (Debian + `vim-nox`, Python,
+`xvfb`, `xclip`) and runs the same suite under Linux, bind-mounting the repo so
+edits need no rebuild. It runs under `xvfb-run`, so `xclip` has a display and
+`test_clipboard.vim` exercises the real Linux clipboard-image path rather than
+skipping. This is what catches portability bugs the macOS run hides — e.g. a
+missing `from typing import Optional` that Python 3.14's lazy annotation
+evaluation tolerates locally but the container's 3.13 rejects at import. It does
+**not** cover `setup_lazyass.sh`'s Linux branch (needs systemd/sudo/real Gmail),
+the `wl-clipboard`/Wayland path, or the clipboard *file*-list path.
 
 Current suites:
 
