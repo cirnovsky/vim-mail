@@ -12,6 +12,25 @@ It has three parts you set up once, in order:
 
 ---
 
+## Quick start (macOS, lazy mode)
+
+If you just want it working, clone the repo and run:
+
+```bash
+./setup_lazyass.sh
+```
+
+It prompts **only** for your Gmail address and app password (and your sudo
+password, for `/etc`), then does the rest — installs deps, configures the
+Postfix→Gmail relay in `/etc` (with backups, idempotent), writes
+`~/.fetchmailrc`, creates the store, and verifies the login. At the end it prints
+the three vimrc lines to add (the one manual step, since plugin managers vary).
+
+Prefer to understand each piece, or on Linux? Follow the manual steps below —
+they're the same thing, broken out.
+
+---
+
 ## Requirements
 
 - macOS (Postfix is built in) or Linux

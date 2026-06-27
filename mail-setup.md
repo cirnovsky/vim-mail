@@ -236,6 +236,7 @@ via `sendmail -t`, the message is ingested into `<sent-dir>` (default
     mail_store.py             Python backend (migrate/ingest-stdin/send)
     mail-setup.md             this document
     setup.sh                  prints/patches vimrc + fetchmailrc for this clone
+    setup_lazyass.sh          macOS one-shot: prompts email+password, does deps + /etc relay + fetchmailrc
     Makefile                  `make test` runs the whole suite
     tests/                    test suites (see §5)
 ```
