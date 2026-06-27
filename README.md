@@ -192,6 +192,22 @@ same Gmail thread.
 
 ---
 
+## TODO
+
+- **Image-file copy bug** — pasting a *screenshot* inline (`<leader>p`) works,
+  but pasting a *copied image file* doesn't yet.
+- **Non-Gmail providers** — SMTP/IMAP hosts are currently hardcoded to Gmail;
+  make them configurable.
+- **Modularization & optimization** — split up the larger files; perf at scale.
+- **`<CR>` full-screen open** — open a message full-screen instead of in a split.
+- **Message formatting** — format/reflow the message body.
+- **Actionable placeholders** — open links/attachments and jump between the
+  `[N]` markers and their footer entries in a message view.
+- **Non-destructive refresh** — let `M`/`<leader>f` keep staged edits instead of
+  prompting (today they warn before discarding).
+
+---
+
 ## Anything deeper?
 
 `mail-setup.md` has the full technical reference — how messages are stored, how
