@@ -78,7 +78,7 @@ set rtp+={REPO}
 let g:mail_python = '{PY}'
 let g:mail_store_py = '{REPO}/scripts/mail_store.py'
 runtime plugin/mail.vim
-runtime autoload/mail.vim
+runtime! autoload/mail/*.vim
 let g:mail_root = '{STORE}'
 let g:mail_from = 'Me <me@example.com>'
 try
@@ -155,7 +155,7 @@ set rtp+={REPO}
 let g:mail_python = '{PY}'
 let g:mail_store_py = '{REPO}/scripts/mail_store.py'
 runtime plugin/mail.vim
-runtime autoload/mail.vim
+runtime! autoload/mail/*.vim
 let g:mail_root = '{STORE}'
 let g:mail_from = 'Me <me@example.com>'
 try
@@ -222,7 +222,7 @@ set rtp+={REPO}
 let g:mail_python = '{PY}'
 let g:mail_store_py = '{REPO}/scripts/mail_store.py'
 runtime plugin/mail.vim
-runtime autoload/mail.vim
+runtime! autoload/mail/*.vim
 let g:mail_root = '{STORE}'
 let g:mail_from = 'Me <me@example.com>'
 try
