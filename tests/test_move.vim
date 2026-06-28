@@ -115,22 +115,33 @@ function! Test_move_guard_cancel() abort
   call delete(root, 'rf')
 endfunction
 
-" --- Test: confirming the guard (Discard) lets the move proceed ---
+" --- Test: 'Discard' proceeds AND throws the staged edit away (vs 'Save') ---
 function! Test_move_guard_discard() abort
   let root = tempname() . '/Mail'
-  call s:mkmsg(root . '/inbox/20260101T000000Z_cccccccc')
+  call s:mkmsg(root . '/inbox/20260101T000000Z_aaaaaaaa')
+  call s:mkmsg(root . '/inbox/20260101T000000Z_bbbbbbbb')
   call mkdir(root . '/archive', 'p')
   let g:mail_root = root
   let g:test_move_dest = 'archive'
 
   call mail#index#open('inbox')
-  setlocal modified                            " simulate staged edits
-  let g:test_confirm = 'discard'                " user picks Discard
+  " buffer is reverse-sorted: line 1 = ...bbbb, line 2 = ...aaaa
   call cursor(1, 1)
+  normal! dd                                    " stage a REAL delete of ...bbbb
+  call assert_true(&modified, 'dd staged a change')
+
+  let g:test_confirm = 'discard'                " user picks Discard
+  call cursor(1, 1)                             " now ...aaaa
   call mail#actions#move()
 
-  call assert_true(isdirectory(root . '/archive/20260101T000000Z_cccccccc'),
-        \ 'move proceeds when guard is confirmed')
+  " ...aaaa moved; ...bbbb's staged delete was DISCARDED (write() never ran), so
+  " it stays in inbox and never reaches trash — the opposite of guard_save.
+  call assert_true(isdirectory(root . '/archive/20260101T000000Z_aaaaaaaa'),
+        \ 'move proceeds after Discard')
+  call assert_true(isdirectory(root . '/inbox/20260101T000000Z_bbbbbbbb'),
+        \ 'staged delete discarded — message still in inbox')
+  call assert_false(isdirectory(root . '/trash/20260101T000000Z_bbbbbbbb'),
+        \ 'discarded delete was NOT committed to trash')
 
   bwipeout!
   call delete(root, 'rf')
