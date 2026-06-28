@@ -14,6 +14,13 @@ REPO=$(dirname "$DIR")
 PYTHON=$(command -v python3 || true)
 VIM=$(command -v vim || true)
 
+# Per-test wall-clock cap so a hung test fails fast (and is named) instead of
+# stalling forever — e.g. a headless clipboard/X call that blocks on CI.
+# `timeout` is GNU coreutils (present on Linux; macOS only as `gtimeout`, if at
+# all). When absent (typical macOS), tests run uncapped as before.
+TIMEOUT_BIN=$(command -v timeout || command -v gtimeout || true)
+TIMEOUT_SECS=120
+
 pass=0
 fail=0
 fails=""
@@ -21,21 +28,28 @@ fails=""
 run() {  # name, command...
   name=$1; shift
   printf '\n--- %s ---\n' "$name"
-  if "$@"; then
-    pass=$((pass + 1))
+  if [ -n "$TIMEOUT_BIN" ]; then
+    "$TIMEOUT_BIN" "$TIMEOUT_SECS" "$@"; rc=$?
   else
-    fail=$((fail + 1))
-    fails="$fails $name"
+    "$@"; rc=$?
+  fi
+  if [ "$rc" -eq 0 ]; then
+    pass=$((pass + 1))
+  elif [ "$rc" -eq 124 ]; then
+    printf '  TIMEOUT after %ss\n' "$TIMEOUT_SECS"
+    fail=$((fail + 1)); fails="$fails $name(timeout)"
+  else
+    fail=$((fail + 1)); fails="$fails $name"
   fi
 }
 
-# Python suites.
+# Python suites (-u = unbuffered, so output survives a timeout kill on CI).
 for t in "$DIR"/test_*.py; do
   [ -e "$t" ] || continue
   if [ -z "$PYTHON" ]; then
     echo "skip $(basename "$t"): python3 not found"; continue
   fi
-  run "$(basename "$t")" "$PYTHON" "$t"
+  run "$(basename "$t")" "$PYTHON" -u "$t"
 done
 
 # Headless Vim suites (exit 0 = pass, nonzero = fail via cquit).

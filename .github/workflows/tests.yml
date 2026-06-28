@@ -10,6 +10,7 @@ jobs:
   # `make test-linux` (vim-nox + python3 + xvfb + xclip, suite under xvfb-run).
   linux:
     runs-on: ubuntu-latest
+    timeout-minutes: 15        # backstop: never let a hung run burn CI minutes
     steps:
       - uses: actions/checkout@v4
       - name: make test-linux
