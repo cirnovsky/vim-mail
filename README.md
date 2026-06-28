@@ -209,6 +209,11 @@ open links/attachments and jump between the
 - **Non-destructive refresh** — let `M`/`<leader>f` keep staged
 edits instead of
   prompting (today they warn before discarding).
+- **Rethink the marking/operator keymaps** — reconsider the `t`/`tt`
+  toggle-mark mapping, and lean into Vim-native operator semantics so
+  actions (move, mark read/unread, delete) work uniformly with motions,
+  counts, ranges, and `:g` — instead of today's mix of operator (`t`),
+  targets-or-current (`s`/`S`/`M`), and native (`dd`).
 
 ---
 
