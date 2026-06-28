@@ -1,0 +1,26 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  # Reuse the Docker harness so CI runs the exact same image as a local
+  # `make test-linux` (vim-nox + python3 + xvfb + xclip, suite under xvfb-run).
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: make test-linux
+        run: make test-linux
+
+  # macOS: native run covering the macOS-only paths (osascript clipboard) the
+  # Linux job can't exercise. Disabled for now — covered locally via `make test`,
+  # and macos runners cost 10x free-tier minutes. Uncomment to enable.
+  # macos:
+  #   runs-on: macos-latest
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - name: make test
+  #       run: make test
