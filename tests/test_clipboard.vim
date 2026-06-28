@@ -87,6 +87,32 @@ try
           \ 'both copied files are returned (not just one)')
     call delete(f1) | call delete(f2)
   endif
+
+  " 4. A copied image FILE must embed the file's real bytes, not the clipboard's
+  " synthesized icon. When you copy a file in Finder the pasteboard carries BOTH
+  " a file-url AND a «class PNGf» rendering (the file's icon) — paste_image must
+  " prefer the file. Reproduce that by putting both on the clipboard; the file
+  " must win (b:mail_attachments path == the file, not a temp icon png).
+  if has('mac')
+    let setjs2 = "ObjC.import('AppKit'); var pb=$.NSPasteboard.generalPasteboard;"
+          \ . " pb.clearContents; var it=$.NSPasteboardItem.alloc.init;"
+          \ . " it.setDataForType($.NSData.dataWithContentsOfFile('" . s:png . "'),'public.png');"
+          \ . " it.setStringForType($.NSURL.fileURLWithPath('" . s:png . "').absoluteString,'public.file-url');"
+          \ . " pb.writeObjects($.NSArray.arrayWithObject(it));"
+          \ . " $.NSThread.sleepForTimeInterval(0.15);"
+    call system('osascript -l JavaScript', setjs2)
+    enew
+    let b:mail_compose_to = ''
+    call cursor(line('$'), 1)
+    call mail#attach#paste_image()
+    call assert_true(exists('b:mail_attachments') && len(b:mail_attachments) == 1,
+          \ 'copied image file tracked as one inline image')
+    if exists('b:mail_attachments') && len(b:mail_attachments) == 1
+      call assert_equal(s:png, b:mail_attachments[0].path,
+            \ 'embeds the copied FILE, not the clipboard icon/data')
+    endif
+    bwipeout!
+  endif
 finally
   if has('mac') | call system('pbcopy', s:saved) | endif
 endtry

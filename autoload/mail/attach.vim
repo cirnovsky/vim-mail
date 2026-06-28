@@ -79,15 +79,14 @@ function! mail#attach#paste_image() abort
     echohl ErrorMsg | echom 'mail: not a compose buffer' | echohl None
     return
   endif
-  let data = mail#attach#_clipboard_image()
-  if data !=# ''
-    let imgs = [data]
-  else
-    let files = mail#attach#_clipboard_files()
-    if empty(files)
-      echohl WarningMsg | echom 'mail: no image in clipboard' | echohl None
-      return
-    endif
+  " Prefer copied FILES over the clipboard's image *data*. When you copy a file
+  " in Finder, macOS also exposes a «class PNGf» rendering of it — but that's the
+  " file's ICON / QuickLook thumbnail, not its real pixels. A data-first check
+  " would embed that icon (the reported bug). So: if image file(s) are on the
+  " clipboard, embed those; fall back to raw data (e.g. a screenshot) only when
+  " there's no file.
+  let files = mail#attach#_clipboard_files()
+  if !empty(files)
     for f in files
       if !mail#attach#_is_image(f)
         echohl ErrorMsg
@@ -97,6 +96,13 @@ function! mail#attach#paste_image() abort
       endif
     endfor
     let imgs = files
+  else
+    let data = mail#attach#_clipboard_image()
+    if data ==# ''
+      echohl WarningMsg | echom 'mail: no image in clipboard' | echohl None
+      return
+    endif
+    let imgs = [data]
   endif
   let markers = []
   for img in imgs

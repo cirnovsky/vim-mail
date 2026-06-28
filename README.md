@@ -194,9 +194,6 @@ one won't
 
 ## TODO
 
-- **Image-file copy bug** — pasting a *screenshot* inline (`<leader>p`)
-works,
-  but pasting a *copied image file* doesn't yet.
 - **Non-Gmail providers** — SMTP/IMAP hosts are currently hardcoded
 to Gmail;
   make them configurable.
