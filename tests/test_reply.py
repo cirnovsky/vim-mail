@@ -195,12 +195,24 @@ ok('References contains msg1', '<msg1@test>' in refs)
 ok('References contains msg2', '<msg2@test>' in refs)
 
 
-print('\n=== Case 5: [cid:...] lines stripped from quote ===')
-body_with_cid = 'Dear user,\n\nPlease see attached.\n\n[cid:8d2f5076-da23-4c2b-aea4-1fe85aff0fef]\n'
-filtered = [l for l in body_with_cid.splitlines() if not l.startswith('[cid:')]
-ok('[cid:] line removed', not any(l.startswith('[cid:') for l in filtered))
-ok('other lines kept', 'Dear user,' in filtered)
-ok('attached line kept', 'Please see attached.' in filtered)
+print('\n=== Case 5: [cid:...] lines stripped from quote (real quote_text) ===')
+import email.message  # noqa: E402
+m_cid = email.message.EmailMessage()
+m_cid['Subject'] = 'inline'
+m_cid.set_content(
+    'Dear user,\n\nPlease see attached.\n\n'
+    '[cid:8d2f5076-da23-4c2b-aea4-1fe85aff0fef]\n'
+    'Regards\n'
+)
+q_cid = quote.quote_text(m_cid.as_bytes())
+ok('[cid:] placeholder line removed', '[cid:' not in q_cid, repr(q_cid))
+ok('text before the marker kept', 'Dear user,' in q_cid and 'Please see attached.' in q_cid)
+ok('text after the marker kept', 'Regards' in q_cid)
+m_inline = email.message.EmailMessage()
+m_inline['Subject'] = 'inline2'
+m_inline.set_content('see [cid:keepme] here\n')
+ok('inline [cid:x] amid words is NOT stripped',
+   'see [cid:keepme] here' in quote.quote_text(m_inline.as_bytes()))
 
 
 print('\n=== Case 6: New compose (no original) ===')

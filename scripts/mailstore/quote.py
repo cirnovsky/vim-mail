@@ -2,9 +2,20 @@
 
 import email
 import html as html_module
+import re
 from email import policy
 
 from .htmltext import _build_cid_map, html_to_text
+
+
+def _strip_cid_lines(text: str) -> str:
+    """Drop standalone '[cid:...]' placeholder lines — inline-image references
+    some clients leave in their text/plain part, which are noise in a quote.
+    Only whole-line placeholders are removed; '[cid:x]' amid other text stays."""
+    return "\n".join(
+        ln for ln in text.split("\n")
+        if not re.match(r"\s*\[cid:[^\]]*\]\s*$", ln)
+    )
 
 
 def _quote_depth(line: str) -> tuple[int, str]:
@@ -62,12 +73,12 @@ def quote_text(raw: bytes) -> str:
     msg = email.message_from_bytes(raw, policy=policy.default)
     plain = msg.get_body(preferencelist=("plain",))
     if plain is not None and plain.get_content_type() == "text/plain":
-        text = plain.get_content()
-        return html_module.unescape(text).replace("\xa0", " ").rstrip("\n")
+        text = html_module.unescape(plain.get_content()).replace("\xa0", " ")
+        return _strip_cid_lines(text).rstrip("\n")
     html = msg.get_body(preferencelist=("html",))
     if html is not None and html.get_content_type() == "text/html":
         text, _ = html_to_text(
             html.get_content(), _build_cid_map(msg), link_footnotes=False
         )
-        return text
+        return _strip_cid_lines(text)
     return ""
