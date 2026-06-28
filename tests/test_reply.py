@@ -195,24 +195,26 @@ ok('References contains msg1', '<msg1@test>' in refs)
 ok('References contains msg2', '<msg2@test>' in refs)
 
 
-print('\n=== Case 5: [cid:...] lines stripped from quote (real quote_text) ===')
+print('\n=== Case 5: inline [cid:...] in text/plain → [img N], aligned with html ===')
 import email.message  # noqa: E402
+from mailstore.htmltext import html_to_text, text_cid_to_markers  # noqa: E402
+# A [cid:ID] token in a quoted text/plain body becomes the same [img N] marker
+# the HTML path produces — handled by the real quote engine, not the test.
 m_cid = email.message.EmailMessage()
 m_cid['Subject'] = 'inline'
-m_cid.set_content(
-    'Dear user,\n\nPlease see attached.\n\n'
-    '[cid:8d2f5076-da23-4c2b-aea4-1fe85aff0fef]\n'
-    'Regards\n'
-)
+m_cid.set_content('Dear user,\n\n[cid:img001]\n\nRegards\n')
 q_cid = quote.quote_text(m_cid.as_bytes())
-ok('[cid:] placeholder line removed', '[cid:' not in q_cid, repr(q_cid))
-ok('text before the marker kept', 'Dear user,' in q_cid and 'Please see attached.' in q_cid)
-ok('text after the marker kept', 'Regards' in q_cid)
-m_inline = email.message.EmailMessage()
-m_inline['Subject'] = 'inline2'
-m_inline.set_content('see [cid:keepme] here\n')
-ok('inline [cid:x] amid words is NOT stripped',
-   'see [cid:keepme] here' in quote.quote_text(m_inline.as_bytes()))
+ok('cid token rendered as [img N]', '[img 1]' in q_cid, repr(q_cid))
+ok('no raw [cid:] left in the quote', '[cid:' not in q_cid)
+ok('surrounding text kept', 'Dear user,' in q_cid and 'Regards' in q_cid)
+# The shared numberer: html <img src=cid:x> and text/plain [cid:x] resolve to
+# the SAME marker and the same cid filename ordering.
+hmap = {'img001': 'photo.png'}
+h_txt, h_refs = html_to_text('<p>hi <img src="cid:img001"></p>', hmap)
+t_txt, t_refs = text_cid_to_markers('hi [cid:img001]', hmap)
+ok('html and text/plain number the same cid identically',
+   '[img 1]' in h_txt and '[img 1]' in t_txt and h_refs == t_refs == ['photo.png'],
+   f'{h_refs} {t_refs}')
 
 
 print('\n=== Case 6: New compose (no original) ===')

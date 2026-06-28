@@ -1,8 +1,30 @@
 """HTML → plain-text extraction, and the Content-ID → filename map."""
 
-import html as html_module
+import re
 from email.message import EmailMessage
 from html.parser import HTMLParser
+
+
+class _CidNumberer:
+    """Assigns stable '[<kind> N]' markers to Content-IDs in first-seen order.
+
+    Shared by the HTML extractor and the plain-text cid pass so an inline part
+    gets the same [img N] number no matter which body part referenced it —
+    `<img src="cid:x">` in the HTML and `[cid:x]` in the text/plain alternative
+    both resolve to the same marker."""
+
+    def __init__(self, cid_map: dict[str, str] | None = None) -> None:
+        self._cid_map: dict[str, str] = cid_map or {}
+        self.refs: list[str] = []          # filenames, first-appearance order
+        self._seen: set[str] = set()
+
+    def marker(self, cid: str, kind: str = "img", alt: str = "") -> str:
+        fname = self._cid_map.get(cid, cid)
+        if fname not in self._seen:
+            self._seen.add(fname)
+            self.refs.append(fname)
+        n = self.refs.index(fname) + 1
+        return f"{alt} [{kind} {n}]" if alt else f"[{kind} {n}]"
 
 
 class _TextExtractor(HTMLParser):
@@ -17,9 +39,7 @@ class _TextExtractor(HTMLParser):
         # When False, link text is kept but no "[N]" markers / "Links:" footer
         # are emitted (used for reply quoting — footnote URLs are noise there).
         self._link_footnotes = link_footnotes
-        self._cid_map: dict[str, str] = cid_map or {}
-        self._cid_refs: list[str] = []    # filenames in order of first appearance
-        self._cid_seen: set[str] = set()
+        self._cid = _CidNumberer(cid_map)
 
     def handle_starttag(self, tag: str, attrs: list) -> None:
         if tag in ("script", "style"):
@@ -37,26 +57,13 @@ class _TextExtractor(HTMLParser):
         if tag in ("img", "audio", "video", "embed", "source"):
             src = next((v for k, v in attrs if k == "src" and v), "")
             if src.lower().startswith("cid:"):
-                cid = src[4:].strip()
-                fname = self._cid_map.get(cid, cid)
-                if fname not in self._cid_seen:
-                    self._cid_seen.add(fname)
-                    self._cid_refs.append(fname)
-                n = self._cid_refs.index(fname) + 1
                 alt = next((v for k, v in attrs if k == "alt" and v), "")
                 kind = "img" if tag == "img" else tag
-                label = f"{alt} [{kind} {n}]" if alt else f"[{kind} {n}]"
-                self.chunks.append(label)
+                self.chunks.append(self._cid.marker(src[4:].strip(), kind=kind, alt=alt))
         if tag == "object":
             data = next((v for k, v in attrs if k == "data" and v), "")
             if data.lower().startswith("cid:"):
-                cid = data[4:].strip()
-                fname = self._cid_map.get(cid, cid)
-                if fname not in self._cid_seen:
-                    self._cid_seen.add(fname)
-                    self._cid_refs.append(fname)
-                n = self._cid_refs.index(fname) + 1
-                self.chunks.append(f"[object {n}]")
+                self.chunks.append(self._cid.marker(data[4:].strip(), kind="object"))
 
     def handle_endtag(self, tag: str) -> None:
         if tag in ("script", "style"):
@@ -88,6 +95,18 @@ def _build_cid_map(msg: EmailMessage) -> dict[str, str]:
     return result
 
 
+def text_cid_to_markers(text: str,
+                        cid_map: dict[str, str] | None = None) -> tuple[str, list[str]]:
+    """Replace '[cid:ID]' placeholder tokens in a plain-text body with the same
+    '[img N]' markers `html_to_text` assigns — via the shared `_CidNumberer`, so
+    an inline part numbers identically whether it was referenced from the HTML
+    or the text/plain alternative. Returns (text, cid_filenames_in_order)."""
+    num = _CidNumberer(cid_map)
+    out = re.sub(r"\[cid:([^\]]+)\]",
+                 lambda m: num.marker(m.group(1).strip()), text)
+    return out, num.refs
+
+
 def html_to_text(html: str, cid_map: dict[str, str] | None = None,
                  link_footnotes: bool = True) -> tuple[str, list[str]]:
     """Convert HTML to plain text. Returns (text, cid_filenames_in_order).
@@ -115,4 +134,4 @@ def html_to_text(html: str, cid_map: dict[str, str] | None = None,
         result.append("Links:")
         for i, href in enumerate(extractor._links, 1):
             result.append(f"[{i}] {href}")
-    return "\n".join(result), extractor._cid_refs
+    return "\n".join(result), extractor._cid.refs

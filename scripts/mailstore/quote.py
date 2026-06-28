@@ -2,20 +2,9 @@
 
 import email
 import html as html_module
-import re
 from email import policy
 
-from .htmltext import _build_cid_map, html_to_text
-
-
-def _strip_cid_lines(text: str) -> str:
-    """Drop standalone '[cid:...]' placeholder lines — inline-image references
-    some clients leave in their text/plain part, which are noise in a quote.
-    Only whole-line placeholders are removed; '[cid:x]' amid other text stays."""
-    return "\n".join(
-        ln for ln in text.split("\n")
-        if not re.match(r"\s*\[cid:[^\]]*\]\s*$", ln)
-    )
+from .htmltext import _build_cid_map, html_to_text, text_cid_to_markers
 
 
 def _quote_depth(line: str) -> tuple[int, str]:
@@ -74,11 +63,14 @@ def quote_text(raw: bytes) -> str:
     plain = msg.get_body(preferencelist=("plain",))
     if plain is not None and plain.get_content_type() == "text/plain":
         text = html_module.unescape(plain.get_content()).replace("\xa0", " ")
-        return _strip_cid_lines(text).rstrip("\n")
+        # Render any [cid:...] inline-image tokens as [img N] — same markers the
+        # HTML path produces, so a quote reads consistently either way.
+        text, _ = text_cid_to_markers(text, _build_cid_map(msg))
+        return text.rstrip("\n")
     html = msg.get_body(preferencelist=("html",))
     if html is not None and html.get_content_type() == "text/html":
         text, _ = html_to_text(
             html.get_content(), _build_cid_map(msg), link_footnotes=False
         )
-        return _strip_cid_lines(text)
+        return text
     return ""

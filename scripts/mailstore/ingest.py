@@ -13,7 +13,7 @@ from email.message import EmailMessage
 from pathlib import Path
 from typing import Optional
 
-from .htmltext import _build_cid_map, html_to_text
+from .htmltext import _build_cid_map, html_to_text, text_cid_to_markers
 
 
 def _message_datetime(msg: EmailMessage) -> datetime:
@@ -64,10 +64,13 @@ def _write_body(
         return cid_refs
     else:
         # Unescape any stray HTML entities in plain-text parts and normalise
-        # non-breaking spaces to regular spaces.
+        # non-breaking spaces to regular spaces. Render [cid:...] inline-image
+        # tokens as [img N] via the shared numberer — same markers the HTML path
+        # emits — and return their filenames for the Attachments footer.
         clean = html_module.unescape(content).replace('\xa0', ' ')
+        clean, cid_refs = text_cid_to_markers(clean, cid_map)
         (msg_dir / "body.txt").write_text(clean, encoding="utf-8")
-        return []
+        return cid_refs
 
 
 def _safe_filename(name: Optional[str], idx: int, content_type: str) -> str:
