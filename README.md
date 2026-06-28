@@ -214,6 +214,11 @@ edits instead of
   actions (move, mark read/unread, delete) work uniformly with motions,
   counts, ranges, and `:g` — instead of today's mix of operator (`t`),
   targets-or-current (`s`/`S`/`M`), and native (`dd`).
+- **CI clipboard (xclip) testing** — the Linux `xclip` path is skipped in
+  CI (headless); it hung under `xvfb` on the runner. Isolate the cause
+  (xvfb-run startup vs the `xclip -i` selection daemon holding the
+  container's stdout), fix it, and run the clipboard test in CI instead of
+  only via the local opt-in `make test-linux-clip`.
 
 ---
 
