@@ -381,6 +381,21 @@ and `[img N]` markers from the MIME parts.
 > `x-special/gnome-copied-files` rather than `text/uri-list`). Attach by path
 > (`:Attach`) works everywhere. Windows isn't supported.
 
+> **Lesson — a copied file carries its icon too, so prefer the file over the
+> data.** Cmd-C on a file in Finder puts *several* representations on the clipboard
+> at once: a file URL (`public.file-url` / `NSFilenamesPboardType`) **and** the
+> file's icon as image data (`com.apple.icns`, coercible to `«class PNGf»` /
+> `public.tiff`). So `the clipboard as «class PNGf»` on a copied file returns its
+> **icon / QuickLook thumbnail, not its pixels**. `mail#attach#paste_image`
+> therefore checks `mail#attach#_clipboard_files()` (the file URL) *before*
+> `mail#attach#_clipboard_image()` (the PNGf): it embeds the real file, and falls
+> back to image data only when there's no file (a screenshot carries data and no
+> file URL). A data-first order silently embeds the icon — the original bug shipped
+> a "JPG document" thumbnail instead of the photo. Guarded by `test_clipboard.vim`
+> (mac-only): the clipboard is given *both* a file URL and PNG data, and the file
+> must win. (To inspect a real copy: `osascript -l JavaScript -e
+> 'ObjC.import("AppKit");$.NSPasteboard.generalPasteboard.types'`.)
+
 #### Thread reconstruction
 
 `<CR>` (full open) scans `meta` files across all subdirectories of
