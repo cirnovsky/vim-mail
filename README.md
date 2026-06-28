@@ -177,11 +177,11 @@ stay in the same Gmail thread.
 - **Clipboard support.** `<leader>a` (clipboard files) and
   `<leader>p` (clipboard image) work out of the box on macOS with no
   extra tools. On Linux they need `xclip` or `wl-clipboard`. The
-  `xclip` **image**-paste path is covered by the Linux test
-  (`make test-linux`, run under Xvfb); the `wl-clipboard`/Wayland path
-  and the clipboard **file**-list path stay untested there, and the
-  latter may not pick up files copied from GNOME Files. Attaching by
-  path (`:Attach`) works everywhere. Windows isn't supported.
+  `xclip` **image** path has an opt-in local test (`make test-linux-clip`,
+  under Xvfb); CI runs headless so it's skipped there. The
+  `wl-clipboard`/Wayland path and the clipboard **file**-list path stay
+  untested, and the latter may not pick up files copied from GNOME Files.
+  Attaching by path (`:Attach`) works everywhere. Windows isn't supported.
 - **Inline forward (`f`) is a re-render**, like Gmail's — it
 reproduces the
   content but isn't a byte-exact copy. Use **`F`** (forward as

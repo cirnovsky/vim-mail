@@ -19,6 +19,10 @@ let s:png = s:repo . '/tests/fixtures/pixel.png'
 
 function! s:can_run() abort
   if has('mac') | return executable('osascript') | endif
+  " Linux needs a real display: xclip/wl-paste block or error without one, so a
+  " headless run (CI, plain container) must skip rather than hang. Run under a
+  " display (a desktop, or `make test-linux-clip` which wraps xvfb-run) to exercise it.
+  if empty($DISPLAY) && empty($WAYLAND_DISPLAY) | return 0 | endif
   return executable('wl-copy') || executable('xclip')
 endfunction
 

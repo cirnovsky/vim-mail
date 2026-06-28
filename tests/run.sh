@@ -29,7 +29,8 @@ run() {  # name, command...
   name=$1; shift
   printf '\n--- %s ---\n' "$name"
   if [ -n "$TIMEOUT_BIN" ]; then
-    "$TIMEOUT_BIN" "$TIMEOUT_SECS" "$@"; rc=$?
+    # -k: SIGKILL 10s after SIGTERM, in case a hung child ignores TERM.
+    "$TIMEOUT_BIN" -k 10 "$TIMEOUT_SECS" "$@"; rc=$?
   else
     "$@"; rc=$?
   fi

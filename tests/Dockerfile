@@ -15,6 +15,7 @@ RUN apt-get update \
 
 WORKDIR /repo
 
-# xvfb-run provides DISPLAY so xclip works and the clipboard test actually runs
-# (it self-skips when no display/clipboard tool is present) instead of skipping.
-CMD ["xvfb-run", "-a", "make", "test"]
+# Default: run headless — robust everywhere incl. CI (xvfb-run can hang on hosted
+# runners). The clipboard test self-skips without a display. To exercise the Linux
+# clipboard path, run with a display via `make test-linux-clip` (wraps xvfb-run).
+CMD ["make", "test"]

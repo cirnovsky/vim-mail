@@ -396,23 +396,28 @@ Run the whole suite from the repo root:
 
 ```bash
 make test            # or: sh tests/run.sh
-make test-linux      # same suite, inside a Linux Docker container
+make test-linux      # same suite, inside a Linux Docker container (headless)
+make test-linux-clip # + a virtual X display, to exercise the xclip path (local)
 ```
 
 `tests/run.sh` auto-discovers and runs every `tests/test_*.py` (Python) and
 `tests/test_*.vim` (headless Vim). It exits non-zero if any suite fails, so
-it works in CI. Add a new suite by dropping a `test_*.py` or `test_*.vim`
-file in `tests/` — no wiring needed.
+it works in CI. Each test is wrapped in `timeout` when available so a hang fails
+fast and is named, instead of stalling. Add a new suite by dropping a
+`test_*.py` or `test_*.vim` file in `tests/` — no wiring needed.
 
-`make test-linux` builds `tests/Dockerfile` (Debian + `vim-nox`, Python,
-`xvfb`, `xclip`) and runs the same suite under Linux, bind-mounting the repo so
-edits need no rebuild. It runs under `xvfb-run`, so `xclip` has a display and
-`test_clipboard.vim` exercises the real Linux clipboard-image path rather than
-skipping. This is what catches portability bugs the macOS run hides — e.g. a
-missing `from typing import Optional` that Python 3.14's lazy annotation
-evaluation tolerates locally but the container's 3.13 rejects at import. It does
-**not** cover `setup_lazyass.sh`'s Linux branch (needs systemd/sudo/real Gmail),
-the `wl-clipboard`/Wayland path, or the clipboard *file*-list path.
+`make test-linux` builds `tests/Dockerfile` (Debian + `vim-nox`, Python) and runs
+the suite under Linux, bind-mounting the repo so edits need no rebuild. It runs
+**headless** (no `$DISPLAY`), so `test_clipboard.vim` self-skips — this is the CI
+path (`.github/workflows/tests.yml`) and is robust everywhere. It still catches
+portability bugs the macOS run hides — e.g. a missing `from typing import
+Optional` that Python 3.14's lazy annotation evaluation tolerates locally but the
+container's 3.13 rejects at import. `make test-linux-clip` wraps the suite in
+`xvfb-run` to exercise the Linux `xclip` clipboard path too — **local only** and
+timeout-bounded, since `xclip`'s selection daemon can hold the container's stdout
+open and hang `docker run` (the reason CI runs headless). Not covered anywhere:
+`setup_lazyass.sh`'s Linux branch (systemd/sudo/Gmail), `wl-clipboard`/Wayland,
+or the clipboard *file*-list path.
 
 Current suites:
 

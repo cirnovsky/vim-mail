@@ -66,15 +66,19 @@ runner picks it up automatically. Headless Vim tests use the built-in
 `assert_*` API, collect into `v:errors`, and `qall!`/`cquit!` to signal
 pass/fail via exit code.
 
-**`make test-linux`** builds `tests/Dockerfile` (Debian + `vim-nox`, Python,
-`xvfb`, `xclip`) and runs the same suite under Linux, bind-mounting the repo (no
-rebuild between runs). It runs under `xvfb-run` so `xclip` has a display and
-`test_clipboard.vim` exercises the real Linux clipboard-image path instead of
-skipping. This catches cross-platform breakage the macOS run can't — e.g. a
-missing `from typing import Optional` masked locally by Python 3.14's lazy
-annotation evaluation but fatal on the container's 3.13. Not covered:
-`setup_lazyass.sh`'s Linux branch (needs systemd/sudo/real Gmail), the
-`wl-clipboard`/Wayland path, and the clipboard *file*-list path.
+**`make test-linux`** builds `tests/Dockerfile` (Debian + `vim-nox`, Python) and
+runs the same suite under Linux, bind-mounting the repo (no rebuild between runs).
+It runs **headless** (no `$DISPLAY`), so `test_clipboard.vim` self-skips — this is
+the CI path (`.github/workflows/tests.yml`) and is robust everywhere. It still
+catches cross-platform breakage the macOS run can't — e.g. a missing
+`from typing import Optional` masked locally by Python 3.14's lazy annotation
+evaluation but fatal on the container's 3.13. **`make test-linux-clip`** is the
+opt-in variant that wraps the suite in `xvfb-run` so the Linux `xclip` clipboard
+path is exercised too — **local only** and timeout-bounded, because `xclip`'s
+selection daemon can hold the container's stdout open and hang `docker run`
+(which is why CI runs headless). Not covered anywhere: `setup_lazyass.sh`'s Linux
+branch (systemd/sudo/Gmail), the `wl-clipboard`/Wayland path, the clipboard
+*file*-list path.
 
 **No hardcoded paths.** `plugin/mail.vim` derives the repo root via
 `expand('<sfile>:p:h:h')`, so `mail_store.py` is found wherever the repo is
