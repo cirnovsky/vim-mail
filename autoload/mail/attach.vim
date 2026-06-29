@@ -182,7 +182,8 @@ endfunction
 " File paths currently on the system clipboard (Finder-copied files etc.).
 " macOS reads ALL file URLs from the pasteboard via the AppKit bridge (JXA) —
 " built-in, and handles multiple files (plain osascript «class furl» only ever
-" returns one). Linux uses wl-paste / xclip text/uri-list.
+" returns one). Linux uses wl-paste / xclip, reading text/uri-list (KDE) and
+" x-special/gnome-copied-files (GNOME/GTK).
 function! mail#attach#_clipboard_files() abort
   if has('mac')
     let js = join([
@@ -195,12 +196,23 @@ function! mail#attach#_clipboard_files() abort
           \ "out.join('\\n');",
           \ ], "\n")
     let raw = system('osascript -l JavaScript', js)
-  elseif executable('wl-paste')
-    let raw = system('wl-paste --type text/uri-list 2>/dev/null')
-  elseif executable('xclip')
-    let raw = system('xclip -selection clipboard -t text/uri-list -o 2>/dev/null')
   else
-    return []
+    " Linux file managers expose copied files under different MIME types: KDE/
+    " Dolphin and the freedesktop standard use text/uri-list; GNOME/GTK (Nautilus,
+    " Nemo, Caja, Thunar) use x-special/gnome-copied-files (a 'copy'/'cut' line
+    " then file:// URIs). Try both — the parser below ignores the operation line.
+    if executable('wl-paste')
+      let fmt = 'wl-paste --type %s 2>/dev/null'
+    elseif executable('xclip')
+      let fmt = 'xclip -selection clipboard -t %s -o 2>/dev/null'
+    else
+      return []
+    endif
+    let raw = ''
+    for ctype in ['text/uri-list', 'x-special/gnome-copied-files']
+      let raw = system(printf(fmt, ctype))
+      if raw =~# 'file://' | break | endif
+    endfor
   endif
   let files = []
   for l in split(raw, "\n")
