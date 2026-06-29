@@ -13,17 +13,25 @@ function! mail#index#open(dir) abort
     return
   endif
 
-  if has_key(s:index_bufnrs, dir) && bufexists(s:index_bufnrs[dir])
-    let winid = bufwinid(s:index_bufnrs[dir])
+  " Reuse only a live buffer that is genuinely our index for this dir — a stale
+  " map entry (buffer wiped by `q`, or its number reused) must fall through.
+  let nr = get(s:index_bufnrs, dir, -1)
+  if nr > 0 && bufexists(nr) && getbufvar(nr, 'mail_dir', '') ==# dir
+    let winid = bufwinid(nr)
     if winid != -1
       call win_gotoid(winid)
     else
-      execute 'buffer ' . s:index_bufnrs[dir]
+      execute 'buffer ' . nr
     endif
   else
-    enew
+    " New index buffer. The name must NOT look like a filesystem path: the old
+    " 'mail://' . dir produced 'mail:///Users/…/inbox', which Vim parses as a URL
+    " whose path is a real directory ("[New DIRECTORY]") — netrw/Vim then hijacks
+    " the buffer and b:mail_dir is gone before refresh runs. Use 'mail://<name>'
+    " (basename only) and create with noautocmd so no directory handler fires.
+    noautocmd enew
     setlocal buftype=acwrite bufhidden=hide noswapfile nowrap nobuflisted
-    silent! execute 'file ' . fnameescape('mail://' . dir)
+    silent! noautocmd execute 'file ' . fnameescape('mail://' . fnamemodify(dir, ':t'))
     let b:mail_dir = dir
     let s:index_bufnrs[dir] = bufnr('%')
   endif
