@@ -164,6 +164,7 @@ function! mail#view#open_message() abort
   endif
 
   execute 'botright split'
+  wincmd _                       " maximize height: full-screen read, :q returns
   enew
   setlocal buftype=nofile bufhidden=wipe noswapfile nobuflisted
   execute 'silent! file ' . fnameescape('[Mail] ' . entry.meta.subject)

@@ -214,7 +214,6 @@ same Gmail thread.
 - **Non-Gmail providers** — SMTP/IMAP hosts are hardcoded to Gmail; make them
   configurable.
 - **Modularization & optimization** — split up the larger files; perf at scale.
-- **`<CR>` full-screen open** — open a message full-screen instead of in a split.
 - **Message formatting** — format/reflow the message body.
 - **Actionable placeholders** — open links/attachments and jump between the
   `[N]` markers and their footer entries in a message view.

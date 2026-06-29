@@ -281,7 +281,7 @@ Usage:
 
 | Key | Action |
 |---|---|
-| `<CR>` | Open message: filtered headers (From/To/Cc/Reply-To/Date/Subject) + full body including inline quoted thread. If `In-Reply-To`/`References` are present and ancestors are found across mailboxes, they are appended below `────` dividers. `buftype=nofile` + `nomodifiable`: `:q` never prompts. Stages as read. |
+| `<CR>` | Open message: filtered headers (From/To/Cc/Reply-To/Date/Subject) + full body including inline quoted thread. If `In-Reply-To`/`References` are present and ancestors are found across mailboxes, they are appended below `────` dividers. Opens in a bottom split maximized to full height (`wincmd _`) for a full-screen read — the index stays a 1-line sliver, so `:q` returns to it. `buftype=nofile` + `nomodifiable`: `:q` never prompts. Stages as read. |
 | `o` | Quick preview — body only, quoted lines (`>`) stripped so only the current message's text is shown. Horizontal split, shared buffer reused on next `o`. Stages as read. |
 | `v` | Same as `o` but opens in a vertical split (direction only matters on first open). |
 | `gm` | Mimeview — opens `attachments/` in a reused netrw split. |

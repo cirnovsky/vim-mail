@@ -243,6 +243,8 @@ Lines starting with `>` and attribution lines filtered out.
 
 **`<CR>` full open**
 Filtered headers + body + thread ancestors (each ancestor also filtered headers).
+Opens in a bottom split maximized to full height (`wincmd _`) for a full-screen
+read; the index stays a 1-line sliver so `:q` returns to it (no quit-Vim risk).
 
 ## Keymaps — index buffer
 
