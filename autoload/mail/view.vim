@@ -175,37 +175,35 @@ function! mail#view#open_message() abort
   call cursor(len(headers) + 2, 1)
 endfunction
 
-" Return filtered reader-relevant headers from rawfile as a list of strings.
+" Return filtered reader-relevant headers as a list of strings.
+"
+" Read from the sibling `meta` file, NOT raw.eml: raw.eml headers are
+" RFC2047-encoded (e.g. Subject: =?utf-8?Q?...?=), which renders as gibberish;
+" the backend already decoded them into `meta` at ingest. a:rawfile is the
+" dir's raw.eml — we derive meta from it (keeps the signature for callers).
+" Reply-To only appears for mail ingested after it was added to _write_meta;
+" older mail simply won't show it.
 function! mail#view#_filtered_headers(rawfile) abort
-  let want = ['from', 'to', 'cc', 'reply-to', 'date', 'subject']
-  let seen    = {}
-  let headers = []
-  if !filereadable(a:rawfile)
-    return headers
+  let meta = fnamemodify(a:rawfile, ':h') . '/meta'
+  if !filereadable(meta)
+    return []
   endif
-  let folded = ''
-  for line in readfile(a:rawfile)
-    if line ==# ''
-      break
-    elseif line =~# '^\s' && folded !=# ''
-      let folded .= ' ' . trim(line)
-    else
-      if folded !=# ''
-        let key = tolower(split(folded, ':')[0])
-        if index(want, key) >= 0 && !has_key(seen, key)
-          let seen[key] = 1
-          if key ==# 'reply-to'
-            let rt = trim(substitute(folded, '^[^:]*:\s*', '', ''))
-            let fr = trim(substitute(get(filter(copy(headers),
-                  \ 'v:val =~? "^From:"'), 0, ''), '^[^:]*:\s*', '', ''))
-            if rt !=# fr | call add(headers, folded) | endif
-          else
-            call add(headers, folded)
-          endif
-        endif
-      endif
-      let folded = line
+  let vals = {}
+  for line in readfile(meta)
+    let c = stridx(line, ':')
+    if c > 0
+      let vals[tolower(line[: c - 1])] = trim(line[c + 1 :])
     endif
+  endfor
+  " Fixed display order; skip empty values; suppress Reply-To when == From.
+  let order = [['From', 'from'], ['Reply-To', 'reply-to'], ['To', 'to'],
+        \ ['Cc', 'cc'], ['Subject', 'subject'], ['Date', 'date']]
+  let headers = []
+  for [label, key] in order
+    let v = get(vals, key, '')
+    if v ==# '' | continue | endif
+    if key ==# 'reply-to' && v ==# get(vals, 'from', '') | continue | endif
+    call add(headers, label . ': ' . v)
   endfor
   return headers
 endfunction

@@ -37,7 +37,7 @@ def _message_id_hash(msg: EmailMessage, raw: bytes) -> str:
 
 def _write_meta(msg: EmailMessage, meta_path: Path) -> None:
     lines = []
-    for key in ("From", "To", "Cc", "Subject", "Date", "Message-ID", "In-Reply-To"):
+    for key in ("From", "Reply-To", "To", "Cc", "Subject", "Date", "Message-ID", "In-Reply-To"):
         value = msg.get(key)
         text = " ".join(str(value).split()) if value is not None else ""
         lines.append(f"{key}: {text}")
