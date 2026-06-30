@@ -67,6 +67,7 @@ function! mail#view#_open_preview_window(vertical) abort
   execute (a:vertical ? 'botright vsplit' : 'botright split')
   enew
   setlocal buftype=nofile bufhidden=hide noswapfile nobuflisted
+  setlocal syntax=mail              " builtin mail syntax: colored quotes + headers
   silent! file [Mail\ Preview]
   let s:preview_bufnr = bufnr('%')
 endfunction
@@ -167,6 +168,7 @@ function! mail#view#open_message() abort
   wincmd _                       " maximize height: full-screen read, :q returns
   enew
   setlocal buftype=nofile bufhidden=wipe noswapfile nobuflisted
+  setlocal syntax=mail              " builtin mail syntax: colored quotes + headers
   execute 'silent! file ' . fnameescape('[Mail] ' . entry.meta.subject)
   call setline(1, lines)
   setlocal nomodifiable nomodified
