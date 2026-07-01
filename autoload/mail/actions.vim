@@ -24,10 +24,111 @@ function! mail#actions#ToggleMarkOperator(type) abort
   call mail#index#_patch_lines(targets, {r, m -> [r, !m]})
 endfunction
 
+" --- content store: labels are symlinks <mailbox>/<id> -> ../.store/<id> ---
+
+function! mail#actions#_store_root() abort
+  return mail#mailbox#_normdir(get(g:, 'mail_root', '~/Mail')) . '/.store'
+endfunction
+
+" Add a mailbox label: <dest_dir>/<id> -> ../.store/<id> (relative, so the tree
+" stays relocatable). Vim has no native symlink(), so shell out to `ln -s`.
+" Returns 0 on success, nonzero on failure.
+function! mail#actions#_make_link(id, dest_dir) abort
+  if !isdirectory(a:dest_dir)
+    call mkdir(a:dest_dir, 'p')
+  endif
+  call system('ln -s ' . shellescape('../.store/' . a:id) . ' '
+        \ . shellescape(a:dest_dir . '/' . a:id))
+  return v:shell_error
+endfunction
+
+" Remove a mailbox label. delete() with NO flags unlinks a file/symlink; it
+" never follows a symlink into its target, so dropping a label can never rf
+" through into .store and destroy the shared canonical bytes.
+function! mail#actions#_unlink(dir) abort
+  call delete(a:dir)
+endfunction
+
+" Find a mailbox (other than exclude_dir) that physically holds an entry named
+" <id> — the source of a pasted, not-yet-migrated legacy message.
+function! mail#actions#_find_source(id, exclude_dir) abort
+  let root = mail#mailbox#_normdir(get(g:, 'mail_root', '~/Mail'))
+  let excl = mail#mailbox#_normdir(a:exclude_dir)
+  for mbox in glob(root . '/*', 0, 1)
+    if !isdirectory(mbox) || fnamemodify(mbox, ':t') ==# '.store' | continue | endif
+    if mail#mailbox#_normdir(mbox) ==# excl | continue | endif
+    if getftype(mbox . '/' . a:id) !=# '' | return mbox . '/' . a:id | endif
+  endfor
+  return ''
+endfunction
+
+" Link ids present in the buffer but absent from the disk baseline — lines
+" pasted from another mailbox's index (native yy+p = copy, dd+p = move once the
+" source buffer is also written). Each must resolve to a canonical object (or a
+" legacy source dir, migrated on touch); a line that resolves to nothing (stray
+" yank / garbage) is ignored. Returns the count linked.
+function! mail#actions#_add_pasted_labels(buf_ids, baseline, mbox_dir) abort
+  let store = mail#actions#_store_root()
+  let added = 0
+  for id in a:buf_ids
+    if has_key(a:baseline, id) | continue | endif
+    if getftype(a:mbox_dir . '/' . id) !=# '' | continue | endif   " already linked here
+    if isdirectory(store . '/' . id)
+      if mail#actions#_make_link(id, a:mbox_dir) == 0 | let added += 1 | endif
+    else
+      " Maybe a legacy real dir for this id lives in another mailbox — migrate it
+      " into the store, then link. Otherwise the id is unresolvable: ignore it.
+      let src = mail#actions#_find_source(id, a:mbox_dir)
+      if src !=# ''
+        call mail#actions#_ensure_canonical(src)
+        if mail#actions#_make_link(id, a:mbox_dir) == 0 | let added += 1 | endif
+      endif
+    endif
+  endfor
+  return added
+endfunction
+
+" Commit one staged delete of <entry> from mailbox <mbox_dir>.
+"   symlink label  -> unlink; if it was the last label, fall to trash (or, when
+"                     already in trash, permanently rm the canonical bytes).
+"   legacy real dir -> old physical semantics (rename to trash / rf in trash),
+"                     so pre-content-store mail still deletes safely.
+function! mail#actions#_delete_entry(entry, mbox_dir, trash_root) abort
+  let id  = a:entry.id
+  let dir = a:entry.dir
+  let in_trash = (mail#mailbox#_normdir(a:mbox_dir) ==# a:trash_root)
+
+  if getftype(dir) !=# 'link'
+    " Legacy real directory (not yet migrated into the store).
+    if in_trash
+      call delete(dir, 'rf')
+    else
+      if !isdirectory(a:trash_root) | call mkdir(a:trash_root, 'p') | endif
+      call rename(dir, a:trash_root . '/' . id)
+    endif
+    return
+  endif
+
+  " Symlink label: drop it, then decide by remaining label count. count_others
+  " reads the link map snapshot rebuilt at the top of write(); it excludes this
+  " mailbox, so the just-done unlink doesn't affect the answer.
+  call mail#actions#_unlink(dir)
+  if mail#link#count_others(id, fnamemodify(a:mbox_dir, ':t')) > 0
+    " Still labelled by another mailbox — the message survives; no trash.
+    return
+  endif
+  if in_trash
+    call delete(mail#actions#_store_root() . '/' . id, 'rf')   " permanent
+  else
+    call mail#actions#_make_link(id, a:trash_root)             " recoverable
+  endif
+endfunction
+
 " BufWriteCmd handler: dd/d3j/:g//d etc. only remove lines from the
-" buffer; this is where that staged delete actually hits disk. Messages
-" deleted from a normal mailbox move to ~/Mail/trash (recoverable);
-" deleting from inside ~/Mail/trash itself is permanent.
+" buffer; this is where that staged delete actually hits disk. Deleting a
+" message drops its label for THIS mailbox; when that was the message's last
+" label it falls to ~/Mail/trash (recoverable), and deleting from ~/Mail/trash
+" itself removes the canonical bytes permanently.
 function! mail#actions#write() abort
   " Parse surviving buffer lines into {id: read_bool}
   let buf_state = {}
@@ -39,20 +140,20 @@ function! mail#actions#write() abort
   endfor
 
   let trash_root = mail#mailbox#_normdir(get(g:, 'mail_root', '~/Mail')) . '/trash'
-  let in_trash   = (b:mail_dir ==# trash_root)
+  let in_trash   = (mail#mailbox#_normdir(b:mail_dir) ==# trash_root)
   let removed = 0
 
+  " Snapshot the link map once, before any unlink — the delete loop's last-label
+  " decisions read it (count_others excludes this mailbox, so a just-unlinked
+  " label here doesn't skew the count).
+  call mail#link#rebuild()
+
+  let baseline = {}
   for entry in b:mail_entries
+    let baseline[entry.id] = 1
     if !has_key(buf_state, entry.id)
-      " Staged delete
-      if in_trash
-        call delete(entry.dir, 'rf')
-      else
-        if !isdirectory(trash_root)
-          call mkdir(trash_root, 'p')
-        endif
-        call rename(entry.dir, trash_root . '/' . entry.id)
-      endif
+      " Staged delete: drop this mailbox's label (see _delete_entry).
+      call mail#actions#_delete_entry(entry, b:mail_dir, trash_root)
       let removed += 1
     else
       " Reconcile read state: buffer is authoritative, align disk to it
@@ -66,9 +167,15 @@ function! mail#actions#write() abort
     endif
   endfor
 
+  " Lines pasted from another mailbox (native dd+p / yy+p): link them here.
+  let added = mail#actions#_add_pasted_labels(keys(buf_state), baseline, b:mail_dir)
+
   if removed > 0
     echom 'Deleted ' . removed . ' message(s)'
           \ . (in_trash ? ' permanently' : ' to ~/Mail/trash')
+  endif
+  if added > 0
+    echom 'Linked ' . added . ' message(s) into ' . fnamemodify(b:mail_dir, ':t')
   endif
   call mail#index#refresh()
   setlocal nomodified
@@ -100,45 +207,93 @@ function! mail#actions#_ok_to_refresh(action) abort
   return choice ==# 'discard'
 endfunction
 
-function! mail#actions#move() abort
-  " Capture targets by id BEFORE the guard — a 'Save' there rebuilds b:mail_entries.
+" Resolve the current targets (marked, else current line) by id, run the
+" staged-edit guard, then re-resolve to entry indices (a 'Save' in the guard
+" rebuilds b:mail_entries). Returns [] if there's nothing to do or the guard
+" cancelled — shared by move/copy.
+function! s:_guarded_targets(action) abort
   let target_ids = map(mail#index#_target_indexes(), 'b:mail_entries[v:val].id')
-  if empty(target_ids)
-    return
-  endif
-  if !mail#actions#_ok_to_refresh('Move')
-    return
-  endif
-  " Re-resolve ids → current indices (b:mail_entries may have just been rebuilt).
+  if empty(target_ids) | return [] | endif
+  if !mail#actions#_ok_to_refresh(a:action) | return [] | endif
   let id2idx = mail#index#_id_to_idx()
   let idxs = []
   for tid in target_ids
     if has_key(id2idx, tid) | call add(idxs, id2idx[tid]) | endif
   endfor
-  if empty(idxs)
+  return idxs
+endfunction
+
+" Resolve a destination mailbox to a full path. An empty name prompts; a
+" non-directory is reported. Returns '' on cancel/error.
+function! s:_resolve_dest(dest_name, prompt) abort
+  let name = a:dest_name
+  if name ==# ''
+    let name = mail#mailbox#_prompt_mailbox(a:prompt, '')
+    if name ==# '' | return '' | endif
+  endif
+  let dir = mail#mailbox#_resolve_mailbox(name)
+  if !isdirectory(dir)
+    echohl ErrorMsg | echom 'mail: not a directory: ' . dir | echohl None
+    return ''
+  endif
+  return dir
+endfunction
+
+" Ensure <dir> is a content-store symlink. A store symlink is left as-is; a
+" legacy real message dir is moved into <root>/.store/<id> and replaced by a
+" symlink (migrate-on-touch), so copy/link ops can share one canonical copy
+" instead of duplicating bytes.
+function! mail#actions#_ensure_canonical(dir) abort
+  if getftype(a:dir) ==# 'link'
     return
   endif
-  let dest_dir = mail#mailbox#_prompt_mailbox('Move to mailbox', '')
-  if dest_dir ==# ''
-    return
+  let id    = fnamemodify(a:dir, ':t')
+  let mbox  = fnamemodify(a:dir, ':h')
+  let store = mail#actions#_store_root()
+  let canon = store . '/' . id
+  if isdirectory(canon)
+    " Canon already known (from another mailbox) — drop this legacy duplicate.
+    call delete(a:dir, 'rf')
+  else
+    if !isdirectory(store) | call mkdir(store, 'p') | endif
+    call rename(a:dir, canon)
   endif
-  let dest_dir = mail#mailbox#_resolve_mailbox(dest_dir)
-  if !isdirectory(dest_dir)
-    echohl ErrorMsg | echom 'mail: not a directory: ' . dest_dir | echohl None
-    return
-  endif
+  call mail#actions#_make_link(id, mbox)
+endfunction
+
+" M keymap: prompt for the destination mailbox, then move.
+function! mail#actions#move() abort
+  call mail#actions#move_to('')
+endfunction
+
+" Move (relink) the targets into dest_name ('' = prompt). Content-store labels
+" relink (add dest, drop source; bytes never move); legacy real dirs physically
+" rename. The :Move command passes dest_name so no prompt is needed.
+function! mail#actions#move_to(dest_name) abort
+  let idxs = s:_guarded_targets('Move')
+  if empty(idxs) | return | endif
+  let dest_dir = s:_resolve_dest(a:dest_name, 'Move to mailbox')
+  if dest_dir ==# '' | return | endif
   let dest_name = fnamemodify(dest_dir, ':t')
   let moved  = 0
   let failed = []
   for idx in idxs
     let entry  = b:mail_entries[idx]
-    let id     = fnamemodify(entry.dir, ':t')
+    let id     = entry.id
     let target = dest_dir . '/' . id
-    if isdirectory(target)
-      " A dir with this id already lives in dest — rename() would clobber or
-      " (for non-empty dirs) fail silently. Refuse and report.
+    if getftype(target) !=# ''
+      " Already labelled in dest — refuse (relink would clobber, rename fail).
       call add(failed, '"' . id . '" already exists in ' . dest_name)
+    elseif getftype(entry.dir) ==# 'link'
+      " Content-store label: relink — add the dest label, drop the source one.
+      if mail#actions#_make_link(id, dest_dir) != 0
+        call add(failed, '"' . id . '" link failed')
+      else
+        call mail#actions#_unlink(entry.dir)
+        let moved += 1
+      endif
     elseif rename(entry.dir, target) != 0
+      " Legacy real dir (pre content-store): physical move.
       call add(failed, '"' . id . '" rename failed')
     else
       let moved += 1
@@ -153,6 +308,71 @@ function! mail#actions#move() abort
     echom 'mail: could not move ' . len(failed) . ' message(s): ' . join(failed, '; ')
     echohl None
   endif
+endfunction
+
+" Copy = add another mailbox label, keeping the source (a message can live in
+" many mailboxes — labels). dest_name '' = prompt. :Copy passes the name.
+function! mail#actions#copy(dest_name) abort
+  let idxs = s:_guarded_targets('Copy')
+  if empty(idxs) | return | endif
+  let dest_dir = s:_resolve_dest(a:dest_name, 'Copy to mailbox')
+  if dest_dir ==# '' | return | endif
+  let dest_name = fnamemodify(dest_dir, ':t')
+  let copied = 0
+  let failed = []
+  for idx in idxs
+    let entry  = b:mail_entries[idx]
+    let id     = entry.id
+    let target = dest_dir . '/' . id
+    if getftype(target) !=# ''
+      call add(failed, '"' . id . '" already exists in ' . dest_name)
+      continue
+    endif
+    " A legacy real dir must first become a store object so both mailboxes
+    " share one canonical copy (no byte duplication).
+    call mail#actions#_ensure_canonical(entry.dir)
+    if mail#actions#_make_link(id, dest_dir) != 0
+      call add(failed, '"' . id . '" link failed')
+    else
+      let copied += 1
+    endif
+  endfor
+  call mail#index#refresh()
+  if copied > 0
+    echom 'Copied ' . copied . ' message(s) to ' . dest_name
+  endif
+  if !empty(failed)
+    echohl ErrorMsg
+    echom 'mail: could not copy ' . len(failed) . ' message(s): ' . join(failed, '; ')
+    echohl None
+  endif
+endfunction
+
+" :MailMigrate — convert the existing flat store under g:mail_root into the
+" content-store layout (.store/<id> + symlinks). Shells out to the Python
+" migrate_store (safe + resumable), then rebuilds L and repaints the index.
+function! mail#actions#migrate_store() abort
+  let root = mail#mailbox#_normdir(get(g:, 'mail_root', '~/Mail'))
+  if !isdirectory(root)
+    echohl ErrorMsg | echom 'mail: no such mail root: ' . root | echohl None
+    return
+  endif
+  if confirm("Migrate " . root . " to the content-store layout?\n"
+        \ . "(.store/<id> + symlinks; non-destructive & resumable)",
+        \ "&Yes\n&No", 2) != 1
+    echo 'Migration cancelled'
+    return
+  endif
+  echo 'Migrating ' . root . ' ...'
+  let out = system(g:mail_python . ' ' . shellescape(g:mail_store_py)
+        \ . ' migrate-store ' . shellescape(root))
+  if v:shell_error
+    echohl ErrorMsg | echom 'mail: migration failed: ' . trim(out) | echohl None
+    return
+  endif
+  call mail#link#rebuild()
+  if exists('b:mail_dir') | call mail#index#refresh() | endif
+  echom 'Migration done — ' . trim(out)
 endfunction
 
 function! mail#actions#read(read) abort

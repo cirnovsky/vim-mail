@@ -1,34 +1,21 @@
-" Headless test suite for mail#actions#move().
+" Headless suite for legacy (pre content-store) real-dir moves + the staged-edit
+" guard, driven via the real M keymap.
+"
+" Fixtures are FAITHFUL legacy real dirs (testmail#legacy = real ingest, then
+" de-symlink), so these exercise the physical rename/rf fallback for old-format
+" mail. Move is driven through the M keymap (filetype plugin on).
 "
 " Run:  vim -u NONE -N -es -S tests/test_move.vim
-" Exit code 0 = all pass, 1 = failure. A summary + any assert failures are
-" written to $TEST_MOVE_LOG (defaults to a tempname, path echoed at the end).
-"
 " Uses an isolated temp mail store per test — never touches a real ~/Mail.
 
-" Locate the repo relative to this script so the test runs wherever cloned.
 let s:repo = expand('<sfile>:p:h:h')
 execute 'set rtp+=' . fnameescape(s:repo)
+execute 'set rtp+=' . fnameescape(s:repo . '/tests/testlib')
 runtime plugin/mail.vim
-" Force the autoload to load now, BEFORE we stub _prompt_mailbox below — else
-" the first lazy mail#* call would re-source autoload and clobber the stub.
 runtime! autoload/mail/*.vim
+filetype plugin on   " wire the index buffer's M keymap
 
-" Build a minimal valid message directory (meta + raw.eml, both non-empty so
-" a colliding rename() genuinely fails the way it does on a real store).
-function! s:mkmsg(dir) abort
-  call mkdir(a:dir, 'p')
-  let id = fnamemodify(a:dir, ':t')
-  call writefile([
-        \ 'From: A <a@example.com>',
-        \ 'Subject: test ' . id,
-        \ 'Date: Tue, 23 Jun 2026 08:00:00 -0700',
-        \ 'Message-ID: <' . id . '@example.com>',
-        \ ], a:dir . '/meta')
-  call writefile(['raw bytes'], a:dir . '/raw.eml')
-endfunction
-
-" Stub the mailbox prompt so move() runs without interactive input().
+" Stub the mailbox prompt so the M keymap runs without interactive input().
 let g:test_move_dest = ''
 function! mail#mailbox#_prompt_mailbox(prompt, default) abort
   return g:test_move_dest
@@ -44,136 +31,128 @@ endfunction
 " --- Test: move onto an existing id reports an error and keeps the message ---
 function! Test_move_collision_reports_error() abort
   let root = tempname() . '/Mail'
-  call s:mkmsg(root . '/inbox/20260623T153828Z_da68d5d7')
-  call s:mkmsg(root . '/history/20260623T153828Z_da68d5d7')  " collision target
+  let id = testmail#legacy(root, 'inbox', 'plain')
+  call testmail#legacy(root, 'history', 'plain')   " same id already in history -> collision
   let g:mail_root = root
   let g:test_move_dest = 'history'
 
   call mail#index#open('inbox')
   call cursor(1, 1)
-  let out = execute('call mail#actions#move()')
+  let out = execute('normal M')
 
   call assert_match('could not move', out, 'collision must report an error')
   call assert_match('already exists in history', out, 'error names the cause')
   call assert_notmatch('Moved 1', out, 'must not falsely claim success')
-  call assert_true(isdirectory(root . '/inbox/20260623T153828Z_da68d5d7'),
-        \ 'message stays in inbox when move fails')
+  call assert_true(isdirectory(root . '/inbox/' . id), 'message stays in inbox when move fails')
   call assert_equal(1, len(b:mail_entries), 'inbox still lists the message')
 
-  bwipeout!
+  call testmail#wipe_buffers()
   call delete(root, 'rf')
 endfunction
 
 " --- Test: a clean move (empty/no collision) still succeeds ---
 function! Test_move_clean_succeeds() abort
   let root = tempname() . '/Mail'
-  call s:mkmsg(root . '/inbox/20260101T000000Z_aaaaaaaa')
-  call mkdir(root . '/archive', 'p')                          " empty dest
+  let id = testmail#legacy(root, 'inbox', 'plain')
+  call mkdir(root . '/archive', 'p')               " empty dest
   let g:mail_root = root
   let g:test_move_dest = 'archive'
 
   call mail#index#open('inbox')
   call cursor(1, 1)
-  let out = execute('call mail#actions#move()')
+  let out = execute('normal M')
 
   call assert_match('Moved 1 message', out, 'clean move reports success')
   call assert_notmatch('could not move', out, 'no error on clean move')
-  call assert_false(isdirectory(root . '/inbox/20260101T000000Z_aaaaaaaa'),
-        \ 'message left the inbox')
-  call assert_true(isdirectory(root . '/archive/20260101T000000Z_aaaaaaaa'),
-        \ 'message arrived in archive')
+  call assert_false(isdirectory(root . '/inbox/' . id), 'message left the inbox')
+  call assert_true(isdirectory(root . '/archive/' . id), 'message arrived in archive')
   call assert_equal(0, len(b:mail_entries), 'inbox now empty')
 
-  bwipeout!
+  call testmail#wipe_buffers()
   call delete(root, 'rf')
 endfunction
 
 " --- Test: with staged (unwritten) edits, cancelling the guard aborts move ---
 function! Test_move_guard_cancel() abort
   let root = tempname() . '/Mail'
-  call s:mkmsg(root . '/inbox/20260101T000000Z_aaaaaaaa')
-  call s:mkmsg(root . '/inbox/20260101T000000Z_bbbbbbbb')
+  let id_a = testmail#legacy(root, 'inbox', 'plain')
+  let id_b = testmail#legacy(root, 'inbox', 'html')
   call mkdir(root . '/archive', 'p')
   let g:mail_root = root
   let g:test_move_dest = 'archive'
 
   call mail#index#open('inbox')
   call assert_false(&modified, 'fresh buffer is unmodified after open')
-  normal! dd                                  " stage a delete (not :w)
+  call testmail#goto(id_b) | normal! dd            " stage a delete of b (not :w)
   call assert_true(&modified, 'dd staged a change')
 
-  let g:test_confirm = 'cancel'                " user picks Cancel at the guard
-  call cursor(1, 1)
-  call mail#actions#move()
+  let g:test_confirm = 'cancel'                     " user picks Cancel at the guard
+  call testmail#goto(id_a)
+  normal M
 
   call assert_equal([], glob(root . '/archive/*', 0, 1), 'nothing moved (cancelled)')
-  call assert_true(isdirectory(root . '/inbox/20260101T000000Z_aaaaaaaa'), 'A kept')
-  call assert_true(isdirectory(root . '/inbox/20260101T000000Z_bbbbbbbb'), 'B kept')
+  call assert_true(isdirectory(root . '/inbox/' . id_a), 'A kept')
+  call assert_true(isdirectory(root . '/inbox/' . id_b), 'B kept')
   call assert_true(&modified, 'staged delete still pending after cancel')
 
-  bwipeout!
+  call testmail#wipe_buffers()
   call delete(root, 'rf')
 endfunction
 
 " --- Test: 'Discard' proceeds AND throws the staged edit away (vs 'Save') ---
 function! Test_move_guard_discard() abort
   let root = tempname() . '/Mail'
-  call s:mkmsg(root . '/inbox/20260101T000000Z_aaaaaaaa')
-  call s:mkmsg(root . '/inbox/20260101T000000Z_bbbbbbbb')
+  let id_a = testmail#legacy(root, 'inbox', 'plain')
+  let id_b = testmail#legacy(root, 'inbox', 'html')
   call mkdir(root . '/archive', 'p')
   let g:mail_root = root
   let g:test_move_dest = 'archive'
 
   call mail#index#open('inbox')
-  " buffer is reverse-sorted: line 1 = ...bbbb, line 2 = ...aaaa
-  call cursor(1, 1)
-  normal! dd                                    " stage a REAL delete of ...bbbb
+  call testmail#goto(id_b) | normal! dd             " stage a REAL delete of B
   call assert_true(&modified, 'dd staged a change')
 
-  let g:test_confirm = 'discard'                " user picks Discard
-  call cursor(1, 1)                             " now ...aaaa
-  call mail#actions#move()
+  let g:test_confirm = 'discard'                    " user picks Discard
+  call testmail#goto(id_a)
+  normal M
 
-  " ...aaaa moved; ...bbbb's staged delete was DISCARDED (write() never ran), so
-  " it stays in inbox and never reaches trash — the opposite of guard_save.
-  call assert_true(isdirectory(root . '/archive/20260101T000000Z_aaaaaaaa'),
-        \ 'move proceeds after Discard')
-  call assert_true(isdirectory(root . '/inbox/20260101T000000Z_bbbbbbbb'),
+  " A moved; B's staged delete was DISCARDED (write() never ran), so it stays in
+  " inbox and never reaches trash — the opposite of guard_save.
+  call assert_true(isdirectory(root . '/archive/' . id_a), 'move proceeds after Discard')
+  call assert_true(isdirectory(root . '/inbox/' . id_b),
         \ 'staged delete discarded — message still in inbox')
-  call assert_false(isdirectory(root . '/trash/20260101T000000Z_bbbbbbbb'),
+  call assert_false(isdirectory(root . '/trash/' . id_b),
         \ 'discarded delete was NOT committed to trash')
 
-  bwipeout!
+  call testmail#wipe_buffers()
   call delete(root, 'rf')
 endfunction
 
 " --- Test: 'Save' commits staged edits, then the move proceeds ---
 function! Test_move_guard_save() abort
   let root = tempname() . '/Mail'
-  call s:mkmsg(root . '/inbox/20260101T000000Z_aaaaaaaa')
-  call s:mkmsg(root . '/inbox/20260101T000000Z_bbbbbbbb')
+  let id_a = testmail#legacy(root, 'inbox', 'plain')
+  let id_b = testmail#legacy(root, 'inbox', 'html')
   call mkdir(root . '/archive', 'p')
   let g:mail_root = root
   let g:test_move_dest = 'archive'
 
   call mail#index#open('inbox')
-  " buffer is reverse-sorted: line 1 = ...bbbb, line 2 = ...aaaa
-  call cursor(1, 1)
-  normal! dd                                    " stage delete of ...bbbb
+  call testmail#goto(id_b) | normal! dd             " stage delete of B
   call assert_true(&modified, 'dd staged a change')
 
-  let g:test_confirm = 'save'                    " commit staged, then move
-  call cursor(1, 1)                              " now ...aaaa
-  call mail#actions#move()
+  let g:test_confirm = 'save'                        " commit staged, then move
+  call testmail#goto(id_a)
+  normal M
 
-  " ...aaaa moved to archive; ...bbbb's staged delete committed to trash
-  call assert_true(isdirectory(root . '/archive/20260101T000000Z_aaaaaaaa'), 'target moved')
-  call assert_true(isdirectory(root . '/trash/20260101T000000Z_bbbbbbbb'),
+  " A moved to archive; B's staged delete committed to trash
+  call assert_true(isdirectory(root . '/archive/' . id_a), 'target moved')
+  call assert_true(isdirectory(root . '/trash/' . id_b),
         \ 'staged delete was saved (to trash), not lost')
-  call assert_false(isdirectory(root . '/inbox/20260101T000000Z_aaaaaaaa'), 'A left inbox')
-  call assert_false(isdirectory(root . '/inbox/20260101T000000Z_bbbbbbbb'), 'B left inbox')
+  call assert_false(isdirectory(root . '/inbox/' . id_a), 'A left inbox')
+  call assert_false(isdirectory(root . '/inbox/' . id_b), 'B left inbox')
 
-  bwipeout!
+  call testmail#wipe_buffers()
   call delete(root, 'rf')
 endfunction
 
@@ -189,11 +168,9 @@ for s:t in s:tests
   endtry
 endfor
 
-let s:logfile = $TEST_MOVE_LOG !=# '' ? $TEST_MOVE_LOG : tempname()
 if empty(v:errors)
-  call writefile(['PASS: ' . len(s:tests) . ' tests', 'log: ' . s:logfile], s:logfile)
   qall!
 else
-  call writefile(['FAIL: ' . len(v:errors) . ' assertion(s)'] + v:errors, s:logfile)
+  for s:e in v:errors | echom s:e | endfor
   cquit!
 endif

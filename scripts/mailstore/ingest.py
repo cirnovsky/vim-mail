@@ -125,18 +125,34 @@ def _write_attachments(msg: EmailMessage, attachments_dir: Path) -> list[str]:
     return saved
 
 
-def ingest_one(raw: bytes, mailbox_dir: Path) -> Optional[Path]:
-    """Explode one RFC822 message into mailbox_dir. Returns the created
-    directory, or None if a directory for this message already exists."""
-    msg = email.message_from_bytes(raw, policy=policy.default)
-    dt = _message_datetime(msg)
-    msgid_hash = _message_id_hash(msg, raw)
-    dirname = f"{dt.strftime('%Y%m%dT%H%M%SZ')}_{msgid_hash}"
-    msg_dir = mailbox_dir / dirname
-    if msg_dir.exists():
-        return None
+def _store_root(mailbox_dir: Path) -> Path:
+    """The canonical content store lives beside the mailbox dirs, as a hidden
+    sibling. <root>/inbox, <root>/archive, ... and <root>/.store."""
+    return mailbox_dir.parent / ".store"
 
-    tmp_dir = mailbox_dir / f".tmp_{dirname}"
+
+def _link_mailbox(canon: Path, link: Path) -> None:
+    """Make <mailbox>/<id> a *relative* symlink (../.store/<id>) into the store,
+    so the whole Mail tree stays relocatable. Atomic-ish: symlink to a temp name
+    then rename over the target."""
+    target = os.path.relpath(canon, link.parent)
+    tmp = link.parent / f".linktmp_{link.name}"
+    if tmp.is_symlink() or tmp.exists():
+        tmp.unlink()
+    os.symlink(target, tmp)
+    os.replace(tmp, link)
+
+
+def _write_canonical(raw: bytes, msg: EmailMessage, store_root: Path, dirname: str) -> Path:
+    """Explode one message's bytes into <store>/<id>/ (raw.eml, meta, body.txt,
+    body.html?, attachments/). Written to a temp dir then renamed into place so a
+    concurrent reader never sees a half-built canonical dir."""
+    store_root.mkdir(parents=True, exist_ok=True)
+    tmp_dir = store_root / f".tmp_{dirname}"
+    if tmp_dir.exists():
+        for p in sorted(tmp_dir.rglob("*"), reverse=True):
+            p.unlink() if p.is_file() or p.is_symlink() else p.rmdir()
+        tmp_dir.rmdir()
     tmp_dir.mkdir(parents=True, exist_ok=True)
     (tmp_dir / "raw.eml").write_bytes(raw)
     _write_meta(msg, tmp_dir / "meta")
@@ -159,8 +175,87 @@ def ingest_one(raw: bytes, mailbox_dir: Path) -> Optional[Path]:
         ]
         body_path.write_text(existing + "\n" + "\n".join(lines) + "\n", encoding="utf-8")
 
-    tmp_dir.rename(msg_dir)
-    return msg_dir
+    canon = store_root / dirname
+    tmp_dir.rename(canon)
+    return canon
+
+
+def ingest_one(raw: bytes, mailbox_dir: Path) -> Optional[Path]:
+    """File one RFC822 message into mailbox_dir. Canonical bytes live once in
+    <root>/.store/<id>/; the mailbox gets a symlink <mailbox>/<id> -> that dir
+    (membership = a label). Returns the created symlink, or None if this mailbox
+    already links the message. A message already in the store (fetched into
+    another mailbox) is NOT re-exploded — only the new link is added."""
+    msg = email.message_from_bytes(raw, policy=policy.default)
+    dt = _message_datetime(msg)
+    msgid_hash = _message_id_hash(msg, raw)
+    dirname = f"{dt.strftime('%Y%m%dT%H%M%SZ')}_{msgid_hash}"
+
+    link = mailbox_dir / dirname
+    if link.is_symlink() or link.exists():
+        return None  # already a member of this mailbox
+
+    store_root = _store_root(mailbox_dir)
+    canon = store_root / dirname
+    if not canon.is_dir():
+        canon = _write_canonical(raw, msg, store_root, dirname)
+
+    mailbox_dir.mkdir(parents=True, exist_ok=True)
+    _link_mailbox(canon, link)
+    return link
+
+
+def _rm_tree(path: Path) -> None:
+    for p in sorted(path.rglob("*"), reverse=True):
+        p.unlink() if p.is_file() or p.is_symlink() else p.rmdir()
+    path.rmdir()
+
+
+def migrate_store(root: Path) -> dict:
+    """Convert a flat store (<mailbox>/<id>/ real dirs) into the content-store
+    layout: canonical bytes in <root>/.store/<id>/ and <mailbox>/<id> symlinks.
+
+    Per message dir, in order: move it into .store/<id> (or, if a canon with that
+    id already exists — the same message filed in another mailbox — drop this
+    duplicate and union its read-state), then replace the mailbox entry with a
+    relative symlink. Already-symlinked entries are skipped, so re-running after
+    an interruption resumes cleanly. Non-dir / dotfile mailbox entries are left
+    untouched. Returns {migrated, deduped, skipped}."""
+    root = Path(root)
+    store = root / ".store"
+    counts = {"migrated": 0, "deduped": 0, "skipped": 0}
+    if not root.is_dir():
+        return counts
+
+    for mbox in sorted(root.iterdir()):
+        if not mbox.is_dir() or mbox.name == ".store":
+            continue
+        # Materialise the listing first — we mutate the dir (add symlinks) below.
+        for entry in sorted(mbox.iterdir()):
+            if entry.name.startswith("."):
+                continue
+            if entry.is_symlink():
+                counts["skipped"] += 1
+                continue
+            if not entry.is_dir():
+                continue
+
+            mid = entry.name
+            canon = store / mid
+            if canon.exists():
+                # Duplicate legacy copy of an already-migrated message: fold it
+                # into the existing canon, unioning read-state (a read copy wins).
+                if (entry / ".read").exists() and not (canon / ".read").exists():
+                    (canon / ".read").write_text("")
+                _rm_tree(entry)
+                counts["deduped"] += 1
+            else:
+                store.mkdir(parents=True, exist_ok=True)
+                entry.rename(canon)
+                counts["migrated"] += 1
+            _link_mailbox(canon, mbox / mid)
+
+    return counts
 
 
 def migrate_mbox(mbox_path: Path, mailbox_dir: Path) -> None:

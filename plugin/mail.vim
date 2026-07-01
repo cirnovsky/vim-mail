@@ -4,6 +4,8 @@ endif
 let g:loaded_mail_plugin = 1
 
 command! -nargs=? -complete=customlist,mail#mailbox#_complete_mailbox Mail call mail#index#open(<q-args>)
+" One-off: migrate an existing flat store to the content-store (.store + symlinks).
+command! MailMigrate call mail#actions#migrate_store()
 
 " g:mail_from: Full From header, e.g. 'Your Name <you@gmail.com>'. Set in vimrc.
 let g:mail_from = get(g:, 'mail_from', '')

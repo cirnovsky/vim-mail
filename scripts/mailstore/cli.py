@@ -5,13 +5,14 @@ from pathlib import Path
 from typing import Optional
 
 from .images import _inline_cid_data_uris
-from .ingest import ingest_one, migrate_mbox
+from .ingest import ingest_one, migrate_mbox, migrate_store
 from .quote import quote_text
 from .send import send_mail
 
 
 USAGE = (
     "usage: mail_store.py migrate <mbox> <mailbox-dir>\n"
+    "                   | migrate-store <mail-root>\n"
     "                   | ingest-stdin <mailbox-dir>\n"
     "                   | send <compose-file> [<orig-msg-dir> [<sent-dir>]]\n"
     "                   | quote <msg-dir>\n"
@@ -26,6 +27,12 @@ def main(argv: Optional[list[str]] = None) -> None:
     cmd, rest = argv[0], argv[1:]
     if cmd == "migrate" and len(rest) == 2:
         migrate_mbox(Path(rest[0]).expanduser(), Path(rest[1]).expanduser())
+    elif cmd == "migrate-store" and len(rest) == 1:
+        counts = migrate_store(Path(rest[0]).expanduser())
+        print(
+            f"migrated={counts['migrated']} deduped={counts['deduped']} "
+            f"skipped={counts['skipped']}"
+        )
     elif cmd == "ingest-stdin" and len(rest) == 1:
         mailbox_dir = Path(rest[0]).expanduser()
         mailbox_dir.mkdir(parents=True, exist_ok=True)

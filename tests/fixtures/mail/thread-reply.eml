@@ -1,0 +1,10 @@
+From: me <me@example.com>
+To: Erin <erin@example.com>
+Subject: Re: Thread start
+Date: Fri, 05 Jun 2026 14:00:00 +0000
+Message-ID: <thread-reply@example.com>
+In-Reply-To: <thread-parent@example.com>
+References: <thread-parent@example.com>
+
+> The original message that starts a thread.
+A reply that references the parent.
