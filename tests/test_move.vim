@@ -13,6 +13,8 @@ runtime plugin/mail.vim
 " Force the autoload to load now, BEFORE we stub _prompt_mailbox below — else
 " the first lazy mail#* call would re-source autoload and clobber the stub.
 runtime! autoload/mail/*.vim
+" Wire the index buffer's <buffer> keymaps so we drive move via the real M key.
+filetype plugin on
 
 " Build a minimal valid message directory (meta + raw.eml, both non-empty so
 " a colliding rename() genuinely fails the way it does on a real store).
@@ -51,7 +53,7 @@ function! Test_move_collision_reports_error() abort
 
   call mail#index#open('inbox')
   call cursor(1, 1)
-  let out = execute('call mail#actions#move()')
+  let out = execute('normal M')
 
   call assert_match('could not move', out, 'collision must report an error')
   call assert_match('already exists in history', out, 'error names the cause')
@@ -74,7 +76,7 @@ function! Test_move_clean_succeeds() abort
 
   call mail#index#open('inbox')
   call cursor(1, 1)
-  let out = execute('call mail#actions#move()')
+  let out = execute('normal M')
 
   call assert_match('Moved 1 message', out, 'clean move reports success')
   call assert_notmatch('could not move', out, 'no error on clean move')
@@ -104,7 +106,7 @@ function! Test_move_guard_cancel() abort
 
   let g:test_confirm = 'cancel'                " user picks Cancel at the guard
   call cursor(1, 1)
-  call mail#actions#move()
+  normal M
 
   call assert_equal([], glob(root . '/archive/*', 0, 1), 'nothing moved (cancelled)')
   call assert_true(isdirectory(root . '/inbox/20260101T000000Z_aaaaaaaa'), 'A kept')
@@ -132,7 +134,7 @@ function! Test_move_guard_discard() abort
 
   let g:test_confirm = 'discard'                " user picks Discard
   call cursor(1, 1)                             " now ...aaaa
-  call mail#actions#move()
+  normal M
 
   " ...aaaa moved; ...bbbb's staged delete was DISCARDED (write() never ran), so
   " it stays in inbox and never reaches trash — the opposite of guard_save.
@@ -164,7 +166,7 @@ function! Test_move_guard_save() abort
 
   let g:test_confirm = 'save'                    " commit staged, then move
   call cursor(1, 1)                              " now ...aaaa
-  call mail#actions#move()
+  normal M
 
   " ...aaaa moved to archive; ...bbbb's staged delete committed to trash
   call assert_true(isdirectory(root . '/archive/20260101T000000Z_aaaaaaaa'), 'target moved')

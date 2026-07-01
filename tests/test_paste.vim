@@ -5,6 +5,9 @@
 "   dd + p into another mailbox  = move  (once BOTH buffers are :w-ritten)
 " A pasted line whose id resolves to nothing (stray register paste) is ignored.
 "
+" Store-backed fixtures use the REAL engine (mail_store.py ingest-stdin); the
+" legacy-source case hand-builds a pre-store real dir (not producible by ingest).
+"
 " Run:  vim -u NONE -N -es -S tests/test_paste.vim
 
 let s:repo = expand('<sfile>:p:h:h')
@@ -13,17 +16,25 @@ runtime plugin/mail.vim
 runtime! autoload/mail/*.vim
 filetype plugin on   " wire the <buffer> keymaps + BufWriteCmd we drive below
 
-function! s:mkcanon(root, id) abort
-  let d = a:root . '/.store/' . a:id
-  call mkdir(d, 'p')
-  call writefile(['From: A <a@example.com>', 'Subject: test ' . a:id,
+" Ingest a deterministic message (from <seed>) into <mailbox> via the REAL
+" backend; same seed -> same canon (second mailbox = another link). Returns id.
+function! s:mkmsg(root, mailbox, seed) abort
+  let mb = a:root . '/' . a:mailbox
+  call mkdir(mb, 'p')
+  let before = {}
+  for e in glob(mb . '/*', 0, 1) | let before[fnamemodify(e, ':t')] = 1 | endfor
+  let raw = join([
+        \ 'From: ' . a:seed . ' <' . a:seed . '@example.com>',
+        \ 'To: me@example.com', 'Subject: ' . a:seed,
         \ 'Date: Tue, 23 Jun 2026 08:00:00 -0700',
-        \ 'Message-ID: <' . a:id . '@example.com>'], d . '/meta')
-  call writefile(['raw bytes for ' . a:id], d . '/raw.eml')
-endfunction
-
-function! s:link(root, mailbox, id) abort
-  call mail#actions#_make_link(a:id, a:root . '/' . a:mailbox)
+        \ 'Message-ID: <' . a:seed . '@example.com>', '', 'Body ' . a:seed, ''], "\n")
+  call system(g:mail_python . ' ' . shellescape(g:mail_store_py)
+        \ . ' ingest-stdin ' . shellescape(mb), raw)
+  for e in glob(mb . '/*', 0, 1)
+    let id = fnamemodify(e, ':t')
+    if !has_key(before, id) | return id | endif
+  endfor
+  throw 'ingest produced no new entry in ' . mb . ' for seed ' . a:seed
 endfunction
 
 function! s:mkrealdir(root, mailbox, id) abort
@@ -46,9 +57,6 @@ function! s:goto(id) abort
   throw 'id not found in buffer: ' . a:id
 endfunction
 
-" Wipe every index buffer. Index buffers are named by mailbox basename
-" (mail://inbox, mail://archive), so leftovers from a prior test would collide on
-" name and leave the next test's buffer unnamed — call this between tests.
 function! s:wipe_index_buffers() abort
   for b in range(1, bufnr('$'))
     if bufexists(b) && bufname(b) =~# '^mail://'
@@ -60,9 +68,7 @@ endfunction
 " --- yy + p = copy: yank a line in one mailbox, paste + :w in another ---
 function! Test_yy_paste_is_copy() abort
   let root = tempname() . '/Mail'
-  let id = '20260101T000000Z_aaaaaaaa'
-  call s:mkcanon(root, id)
-  call s:link(root, 'inbox', id)
+  let id = s:mkmsg(root, 'inbox', 'a')
   call mkdir(root . '/archive', 'p')
   let g:mail_root = root
 
@@ -83,15 +89,13 @@ endfunction
 " --- dd + p = move once BOTH buffers are :w-ritten ---
 function! Test_dd_paste_is_move() abort
   let root = tempname() . '/Mail'
-  let id = '20260101T000000Z_bbbbbbbb'
-  call s:mkcanon(root, id)
-  call s:link(root, 'inbox', id)
+  let id = s:mkmsg(root, 'inbox', 'b')
   call mkdir(root . '/archive', 'p')
   let g:mail_root = root
 
   call mail#index#open('inbox')
   let inbox_buf = bufnr('%')
-  call s:goto(id) | normal! dd           " cut the line (goes to "_ ? no: unnamed)
+  call s:goto(id) | normal! dd            " cut the line
   call mail#index#open('archive')
   normal! p                              " paste into archive
   silent write                           " archive gains the label (copy so far)

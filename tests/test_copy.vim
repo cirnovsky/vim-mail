@@ -1,6 +1,10 @@
 " Headless suite for Stage 3: the link map L, :Copy (add a label, keep source),
 " and the :Move <mailbox> command form (relink without the interactive prompt).
 "
+" Store-backed fixtures are built with the REAL engine (mail_store.py
+" ingest-stdin); the legacy-migration case still hand-builds a pre-store real dir
+" (that format is exactly what ingest replaced, so it can't come from ingest).
+"
 " Run:  vim -u NONE -N -es -S tests/test_copy.vim
 " Isolated temp store per test — never touches a real ~/Mail.
 
@@ -10,7 +14,6 @@ runtime plugin/mail.vim
 runtime! autoload/mail/*.vim
 filetype plugin on   " wire the <buffer> :Copy/:Move commands + BufWriteCmd
 
-" Wipe every index buffer between tests (basename-named -> would collide on :w).
 function! s:wipe_index_buffers() abort
   for b in range(1, bufnr('$'))
     if bufexists(b) && bufname(b) =~# '^mail://'
@@ -24,22 +27,25 @@ function! mail#mailbox#_prompt_mailbox(prompt, default) abort
   return g:test_move_dest
 endfunction
 
-function! s:mkcanon(root, id) abort
-  let d = a:root . '/.store/' . a:id
-  call mkdir(d, 'p')
-  call writefile([
-        \ 'From: A <a@example.com>',
-        \ 'Subject: test ' . a:id,
+" Ingest a deterministic message (from <seed>) into <mailbox> via the REAL
+" backend; same seed -> same canon (second mailbox = another link). Returns id.
+function! s:mkmsg(root, mailbox, seed) abort
+  let mb = a:root . '/' . a:mailbox
+  call mkdir(mb, 'p')
+  let before = {}
+  for e in glob(mb . '/*', 0, 1) | let before[fnamemodify(e, ':t')] = 1 | endfor
+  let raw = join([
+        \ 'From: ' . a:seed . ' <' . a:seed . '@example.com>',
+        \ 'To: me@example.com', 'Subject: ' . a:seed,
         \ 'Date: Tue, 23 Jun 2026 08:00:00 -0700',
-        \ 'Message-ID: <' . a:id . '@example.com>',
-        \ ], d . '/meta')
-  call writefile(['raw bytes for ' . a:id], d . '/raw.eml')
-endfunction
-
-function! s:link(root, mailbox, id) abort
-  " Build the fixture with the REAL production linker so setup exercises the
-  " same code the tests check — not a duplicate hand-rolled ln -s.
-  call mail#actions#_make_link(a:id, a:root . '/' . a:mailbox)
+        \ 'Message-ID: <' . a:seed . '@example.com>', '', 'Body ' . a:seed, ''], "\n")
+  call system(g:mail_python . ' ' . shellescape(g:mail_store_py)
+        \ . ' ingest-stdin ' . shellescape(mb), raw)
+  for e in glob(mb . '/*', 0, 1)
+    let id = fnamemodify(e, ':t')
+    if !has_key(before, id) | return id | endif
+  endfor
+  throw 'ingest produced no new entry in ' . mb . ' for seed ' . a:seed
 endfunction
 
 " A legacy (pre content-store) real message directory living in a mailbox.
@@ -57,19 +63,14 @@ endfunction
 " --- the link map reflects disk: which mailboxes label each id ---
 function! Test_link_map_reflects_disk() abort
   let root = tempname() . '/Mail'
-  call s:mkcanon(root, '20260101T000000Z_aaaaaaaa')
-  call s:link(root, 'inbox', '20260101T000000Z_aaaaaaaa')
-  call s:link(root, 'archive', '20260101T000000Z_aaaaaaaa')
+  let id = s:mkmsg(root, 'inbox', 'a')
+  call s:mkmsg(root, 'archive', 'a')          " same message, second label
   let g:mail_root = root
 
   call mail#link#rebuild()
-  call assert_equal(['archive', 'inbox'],
-        \ mail#link#labels('20260101T000000Z_aaaaaaaa'), 'both labels seen')
-  call assert_equal(1,
-        \ mail#link#count_others('20260101T000000Z_aaaaaaaa', 'inbox'),
-        \ 'one other label besides inbox')
-  call assert_equal(0,
-        \ mail#link#count_others('20260101T000000Z_zzzzzzzz', 'inbox'),
+  call assert_equal(['archive', 'inbox'], mail#link#labels(id), 'both labels seen')
+  call assert_equal(1, mail#link#count_others(id, 'inbox'), 'one other label besides inbox')
+  call assert_equal(0, mail#link#count_others('20260101T000000Z_zzzzzzzz', 'inbox'),
         \ 'unknown id has no labels')
 
   call delete(root, 'rf')
@@ -78,8 +79,7 @@ endfunction
 " --- :Copy adds a label to dest and KEEPS the source (one canon, two links) ---
 function! Test_copy_keeps_source() abort
   let root = tempname() . '/Mail'
-  call s:mkcanon(root, '20260101T000000Z_bbbbbbbb')
-  call s:link(root, 'inbox', '20260101T000000Z_bbbbbbbb')
+  let id = s:mkmsg(root, 'inbox', 'b')
   call mkdir(root . '/archive', 'p')
   let g:mail_root = root
 
@@ -87,10 +87,8 @@ function! Test_copy_keeps_source() abort
   call cursor(1, 1)
   Copy archive
 
-  call assert_equal('link', s:ftype(root . '/inbox/20260101T000000Z_bbbbbbbb'),
-        \ 'source label kept')
-  call assert_equal('link', s:ftype(root . '/archive/20260101T000000Z_bbbbbbbb'),
-        \ 'dest label added')
+  call assert_equal('link', s:ftype(root . '/inbox/' . id), 'source label kept')
+  call assert_equal('link', s:ftype(root . '/archive/' . id), 'dest label added')
   call assert_equal(1, len(readdir(root . '/.store')), 'still exactly one canon')
 
   call s:wipe_index_buffers()
@@ -100,7 +98,8 @@ endfunction
 " --- :Copy of a LEGACY real dir migrates it into the store, then links both ---
 function! Test_copy_migrates_legacy() abort
   let root = tempname() . '/Mail'
-  call s:mkrealdir(root, 'inbox', '20260101T000000Z_cccccccc')
+  let id = '20260101T000000Z_cccccccc'
+  call s:mkrealdir(root, 'inbox', id)
   call mkdir(root . '/archive', 'p')
   let g:mail_root = root
 
@@ -108,13 +107,11 @@ function! Test_copy_migrates_legacy() abort
   call cursor(1, 1)
   Copy archive
 
-  call assert_true(isdirectory(root . '/.store/20260101T000000Z_cccccccc'),
-        \ 'legacy dir migrated into the store')
-  call assert_equal('link', s:ftype(root . '/inbox/20260101T000000Z_cccccccc'),
+  call assert_true(isdirectory(root . '/.store/' . id), 'legacy dir migrated into the store')
+  call assert_equal('link', s:ftype(root . '/inbox/' . id),
         \ 'source is now a symlink (migrated in place)')
-  call assert_equal('link', s:ftype(root . '/archive/20260101T000000Z_cccccccc'),
-        \ 'dest label added')
-  call assert_true(filereadable(root . '/archive/20260101T000000Z_cccccccc/raw.eml'),
+  call assert_equal('link', s:ftype(root . '/archive/' . id), 'dest label added')
+  call assert_true(filereadable(root . '/archive/' . id . '/raw.eml'),
         \ 'dest link resolves to the migrated bytes')
 
   call s:wipe_index_buffers()
@@ -124,8 +121,7 @@ endfunction
 " --- :Move <mailbox> relinks without prompting (command form of M) ---
 function! Test_move_command_arg() abort
   let root = tempname() . '/Mail'
-  call s:mkcanon(root, '20260101T000000Z_dddddddd')
-  call s:link(root, 'inbox', '20260101T000000Z_dddddddd')
+  let id = s:mkmsg(root, 'inbox', 'd')
   call mkdir(root . '/archive', 'p')
   let g:mail_root = root
 
@@ -134,10 +130,8 @@ function! Test_move_command_arg() abort
   let out = execute('Move archive')
 
   call assert_match('Moved 1 message', out, 'move_to reports success')
-  call assert_equal('', s:ftype(root . '/inbox/20260101T000000Z_dddddddd'),
-        \ 'source label gone')
-  call assert_equal('link', s:ftype(root . '/archive/20260101T000000Z_dddddddd'),
-        \ 'dest label present')
+  call assert_equal('', s:ftype(root . '/inbox/' . id), 'source label gone')
+  call assert_equal('link', s:ftype(root . '/archive/' . id), 'dest label present')
 
   call s:wipe_index_buffers()
   call delete(root, 'rf')
@@ -146,8 +140,7 @@ endfunction
 " --- copy then delete one label: the message survives via the other label ---
 function! Test_copy_then_delete_one_survives() abort
   let root = tempname() . '/Mail'
-  call s:mkcanon(root, '20260101T000000Z_eeeeeeee')
-  call s:link(root, 'inbox', '20260101T000000Z_eeeeeeee')
+  let id = s:mkmsg(root, 'inbox', 'e')
   call mkdir(root . '/archive', 'p')
   let g:mail_root = root
 
@@ -162,14 +155,11 @@ function! Test_copy_then_delete_one_survives() abort
   normal! dd
   silent write
 
-  call assert_equal('', s:ftype(root . '/inbox/20260101T000000Z_eeeeeeee'),
-        \ 'inbox label dropped')
-  call assert_equal('link', s:ftype(root . '/archive/20260101T000000Z_eeeeeeee'),
-        \ 'archive label survives')
-  call assert_false(isdirectory(root . '/trash/20260101T000000Z_eeeeeeee'),
+  call assert_equal('', s:ftype(root . '/inbox/' . id), 'inbox label dropped')
+  call assert_equal('link', s:ftype(root . '/archive/' . id), 'archive label survives')
+  call assert_false(isdirectory(root . '/trash/' . id),
         \ 'not trashed — still labelled elsewhere')
-  call assert_true(isdirectory(root . '/.store/20260101T000000Z_eeeeeeee'),
-        \ 'canon kept')
+  call assert_true(isdirectory(root . '/.store/' . id), 'canon kept')
 
   call s:wipe_index_buffers()
   call delete(root, 'rf')

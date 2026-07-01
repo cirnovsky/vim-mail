@@ -4,6 +4,10 @@
 "            the canonical bytes; a still-labelled message just loses one label)
 " The critical invariant: a delete must NEVER rf through a symlink into .store.
 "
+" Fixtures are built with the REAL engine (mail_store.py ingest-stdin), so the
+" canonical .store/<id>/ is exactly what production ingest produces — no
+" hand-shaped canon that could drift from the real layout.
+"
 " Run:  vim -u NONE -N -es -S tests/test_store_ops.vim
 " Isolated temp store per test — never touches a real ~/Mail.
 
@@ -13,9 +17,6 @@ runtime plugin/mail.vim
 runtime! autoload/mail/*.vim
 filetype plugin on   " wire the <buffer> keymaps + BufWriteCmd we drive below
 
-" Wipe every index buffer between tests — they're named by mailbox basename
-" (mail://inbox, …), so leftovers would collide on name and leave the next
-" buffer unnamed (breaking :w).
 function! s:wipe_index_buffers() abort
   for b in range(1, bufnr('$'))
     if bufexists(b) && bufname(b) =~# '^mail://'
@@ -34,24 +35,26 @@ function! mail#actions#_confirm(msg) abort
   return g:test_confirm
 endfunction
 
-" Canonical message dir under <root>/.store/<id>/ (meta + raw.eml).
-function! s:mkcanon(root, id) abort
-  let d = a:root . '/.store/' . a:id
-  call mkdir(d, 'p')
-  call writefile([
-        \ 'From: A <a@example.com>',
-        \ 'Subject: test ' . a:id,
+" Ingest a deterministic message (built from <seed>) into <mailbox> via the REAL
+" backend. Same seed -> same message -> same canon, so a second mailbox just gets
+" another link (labels). Returns the message id (store-dir basename).
+function! s:mkmsg(root, mailbox, seed) abort
+  let mb = a:root . '/' . a:mailbox
+  call mkdir(mb, 'p')
+  let before = {}
+  for e in glob(mb . '/*', 0, 1) | let before[fnamemodify(e, ':t')] = 1 | endfor
+  let raw = join([
+        \ 'From: ' . a:seed . ' <' . a:seed . '@example.com>',
+        \ 'To: me@example.com', 'Subject: ' . a:seed,
         \ 'Date: Tue, 23 Jun 2026 08:00:00 -0700',
-        \ 'Message-ID: <' . a:id . '@example.com>',
-        \ ], d . '/meta')
-  call writefile(['raw bytes for ' . a:id], d . '/raw.eml')
-endfunction
-
-" A mailbox membership: <root>/<mailbox>/<id> -> ../.store/<id> (relative symlink).
-function! s:link(root, mailbox, id) abort
-  " Build the fixture with the REAL production linker so setup exercises the
-  " same code the tests check — not a duplicate hand-rolled ln -s.
-  call mail#actions#_make_link(a:id, a:root . '/' . a:mailbox)
+        \ 'Message-ID: <' . a:seed . '@example.com>', '', 'Body ' . a:seed, ''], "\n")
+  call system(g:mail_python . ' ' . shellescape(g:mail_store_py)
+        \ . ' ingest-stdin ' . shellescape(mb), raw)
+  for e in glob(mb . '/*', 0, 1)
+    let id = fnamemodify(e, ':t')
+    if !has_key(before, id) | return id | endif
+  endfor
+  throw 'ingest produced no new entry in ' . mb . ' for seed ' . a:seed
 endfunction
 
 function! s:ftype(path) abort
@@ -61,24 +64,22 @@ endfunction
 " --- move relinks: source link gone, dest link present, canon intact ---
 function! Test_move_relinks() abort
   let root = tempname() . '/Mail'
-  call s:mkcanon(root, '20260101T000000Z_aaaaaaaa')
-  call s:link(root, 'inbox', '20260101T000000Z_aaaaaaaa')
+  let id = s:mkmsg(root, 'inbox', 'a')
   call mkdir(root . '/archive', 'p')
   let g:mail_root = root
   let g:test_move_dest = 'archive'
 
   call mail#index#open('inbox')
   call cursor(1, 1)
-  let out = execute('normal M')          " press M (keymap); prompt stubbed -> archive
+  let out = execute('normal M')
 
   call assert_match('Moved 1 message', out, 'relink reports success')
-  call assert_equal('', s:ftype(root . '/inbox/20260101T000000Z_aaaaaaaa'),
-        \ 'source symlink removed')
-  call assert_equal('link', s:ftype(root . '/archive/20260101T000000Z_aaaaaaaa'),
+  call assert_equal('', s:ftype(root . '/inbox/' . id), 'source symlink removed')
+  call assert_equal('link', s:ftype(root . '/archive/' . id),
         \ 'dest is a symlink (relink, not a copy of bytes)')
-  call assert_true(isdirectory(root . '/.store/20260101T000000Z_aaaaaaaa'),
+  call assert_true(isdirectory(root . '/.store/' . id),
         \ 'canonical bytes still live in .store')
-  call assert_true(filereadable(root . '/archive/20260101T000000Z_aaaaaaaa/raw.eml'),
+  call assert_true(filereadable(root . '/archive/' . id . '/raw.eml'),
         \ 'dest link resolves to the bytes')
 
   call s:wipe_index_buffers()
@@ -88,8 +89,7 @@ endfunction
 " --- delete the last label -> message goes to trash (recoverable), canon kept ---
 function! Test_delete_last_link_to_trash() abort
   let root = tempname() . '/Mail'
-  call s:mkcanon(root, '20260101T000000Z_bbbbbbbb')
-  call s:link(root, 'inbox', '20260101T000000Z_bbbbbbbb')
+  let id = s:mkmsg(root, 'inbox', 'b')
   let g:mail_root = root
 
   call mail#index#open('inbox')
@@ -97,11 +97,10 @@ function! Test_delete_last_link_to_trash() abort
   normal! dd
   silent write
 
-  call assert_equal('', s:ftype(root . '/inbox/20260101T000000Z_bbbbbbbb'),
-        \ 'inbox label removed')
-  call assert_equal('link', s:ftype(root . '/trash/20260101T000000Z_bbbbbbbb'),
+  call assert_equal('', s:ftype(root . '/inbox/' . id), 'inbox label removed')
+  call assert_equal('link', s:ftype(root . '/trash/' . id),
         \ 'last label falls into trash as a symlink')
-  call assert_true(isdirectory(root . '/.store/20260101T000000Z_bbbbbbbb'),
+  call assert_true(isdirectory(root . '/.store/' . id),
         \ 'canonical bytes preserved (recoverable)')
 
   call s:wipe_index_buffers()
@@ -111,9 +110,8 @@ endfunction
 " --- delete one of two labels -> just drops the label; NOT trashed, canon kept ---
 function! Test_delete_one_of_two_labels() abort
   let root = tempname() . '/Mail'
-  call s:mkcanon(root, '20260101T000000Z_cccccccc')
-  call s:link(root, 'inbox', '20260101T000000Z_cccccccc')
-  call s:link(root, 'archive', '20260101T000000Z_cccccccc')
+  let id = s:mkmsg(root, 'inbox', 'c')
+  call s:mkmsg(root, 'archive', 'c')          " same message, second label
   let g:mail_root = root
 
   call mail#index#open('inbox')
@@ -121,13 +119,11 @@ function! Test_delete_one_of_two_labels() abort
   normal! dd
   silent write
 
-  call assert_equal('', s:ftype(root . '/inbox/20260101T000000Z_cccccccc'),
-        \ 'inbox label removed')
-  call assert_equal('link', s:ftype(root . '/archive/20260101T000000Z_cccccccc'),
-        \ 'other label survives')
-  call assert_false(isdirectory(root . '/trash/20260101T000000Z_cccccccc'),
+  call assert_equal('', s:ftype(root . '/inbox/' . id), 'inbox label removed')
+  call assert_equal('link', s:ftype(root . '/archive/' . id), 'other label survives')
+  call assert_false(isdirectory(root . '/trash/' . id),
         \ 'still-labelled message does NOT go to trash')
-  call assert_true(isdirectory(root . '/.store/20260101T000000Z_cccccccc'),
+  call assert_true(isdirectory(root . '/.store/' . id),
         \ 'canon kept (message survives elsewhere)')
 
   call s:wipe_index_buffers()
@@ -137,8 +133,7 @@ endfunction
 " --- delete from trash, last label -> PERMANENT: canonical bytes removed ---
 function! Test_permanent_delete_from_trash() abort
   let root = tempname() . '/Mail'
-  call s:mkcanon(root, '20260101T000000Z_dddddddd')
-  call s:link(root, 'trash', '20260101T000000Z_dddddddd')
+  let id = s:mkmsg(root, 'trash', 'd')
   let g:mail_root = root
 
   call mail#index#open('trash')
@@ -146,9 +141,8 @@ function! Test_permanent_delete_from_trash() abort
   normal! dd
   silent write
 
-  call assert_equal('', s:ftype(root . '/trash/20260101T000000Z_dddddddd'),
-        \ 'trash label removed')
-  call assert_false(isdirectory(root . '/.store/20260101T000000Z_dddddddd'),
+  call assert_equal('', s:ftype(root . '/trash/' . id), 'trash label removed')
+  call assert_false(isdirectory(root . '/.store/' . id),
         \ 'canonical bytes permanently removed (was the last label, in trash)')
 
   call s:wipe_index_buffers()
@@ -158,9 +152,8 @@ endfunction
 " --- delete from trash while ALSO in inbox -> only unlinks trash; canon kept ---
 function! Test_delete_from_trash_keeps_canon_if_linked_elsewhere() abort
   let root = tempname() . '/Mail'
-  call s:mkcanon(root, '20260101T000000Z_eeeeeeee')
-  call s:link(root, 'trash', '20260101T000000Z_eeeeeeee')
-  call s:link(root, 'inbox', '20260101T000000Z_eeeeeeee')
+  let id = s:mkmsg(root, 'trash', 'e')
+  call s:mkmsg(root, 'inbox', 'e')            " same message, also in inbox
   let g:mail_root = root
 
   call mail#index#open('trash')
@@ -168,11 +161,9 @@ function! Test_delete_from_trash_keeps_canon_if_linked_elsewhere() abort
   normal! dd
   silent write
 
-  call assert_equal('', s:ftype(root . '/trash/20260101T000000Z_eeeeeeee'),
-        \ 'trash label removed')
-  call assert_equal('link', s:ftype(root . '/inbox/20260101T000000Z_eeeeeeee'),
-        \ 'inbox label survives')
-  call assert_true(isdirectory(root . '/.store/20260101T000000Z_eeeeeeee'),
+  call assert_equal('', s:ftype(root . '/trash/' . id), 'trash label removed')
+  call assert_equal('link', s:ftype(root . '/inbox/' . id), 'inbox label survives')
+  call assert_true(isdirectory(root . '/.store/' . id),
         \ 'canon kept — NOT rf-ed through the symlink into .store')
 
   call s:wipe_index_buffers()
