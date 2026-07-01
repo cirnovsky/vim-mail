@@ -8,6 +8,16 @@ let s:repo = expand('<sfile>:p:h:h')
 execute 'set rtp+=' . fnameescape(s:repo)
 runtime plugin/mail.vim
 runtime! autoload/mail/*.vim
+filetype plugin on   " wire the <buffer> :Copy/:Move commands + BufWriteCmd
+
+" Wipe every index buffer between tests (basename-named -> would collide on :w).
+function! s:wipe_index_buffers() abort
+  for b in range(1, bufnr('$'))
+    if bufexists(b) && bufname(b) =~# '^mail://'
+      execute 'bwipeout!' b
+    endif
+  endfor
+endfunction
 
 let g:test_move_dest = ''
 function! mail#mailbox#_prompt_mailbox(prompt, default) abort
@@ -27,10 +37,9 @@ function! s:mkcanon(root, id) abort
 endfunction
 
 function! s:link(root, mailbox, id) abort
-  let mb = a:root . '/' . a:mailbox
-  call mkdir(mb, 'p')
-  call system('ln -s ' . shellescape('../.store/' . a:id) . ' '
-        \ . shellescape(mb . '/' . a:id))
+  " Build the fixture with the REAL production linker so setup exercises the
+  " same code the tests check — not a duplicate hand-rolled ln -s.
+  call mail#actions#_make_link(a:id, a:root . '/' . a:mailbox)
 endfunction
 
 " A legacy (pre content-store) real message directory living in a mailbox.
@@ -76,7 +85,7 @@ function! Test_copy_keeps_source() abort
 
   call mail#index#open('inbox')
   call cursor(1, 1)
-  call mail#actions#copy('archive')
+  Copy archive
 
   call assert_equal('link', s:ftype(root . '/inbox/20260101T000000Z_bbbbbbbb'),
         \ 'source label kept')
@@ -84,7 +93,7 @@ function! Test_copy_keeps_source() abort
         \ 'dest label added')
   call assert_equal(1, len(readdir(root . '/.store')), 'still exactly one canon')
 
-  bwipeout!
+  call s:wipe_index_buffers()
   call delete(root, 'rf')
 endfunction
 
@@ -97,7 +106,7 @@ function! Test_copy_migrates_legacy() abort
 
   call mail#index#open('inbox')
   call cursor(1, 1)
-  call mail#actions#copy('archive')
+  Copy archive
 
   call assert_true(isdirectory(root . '/.store/20260101T000000Z_cccccccc'),
         \ 'legacy dir migrated into the store')
@@ -108,7 +117,7 @@ function! Test_copy_migrates_legacy() abort
   call assert_true(filereadable(root . '/archive/20260101T000000Z_cccccccc/raw.eml'),
         \ 'dest link resolves to the migrated bytes')
 
-  bwipeout!
+  call s:wipe_index_buffers()
   call delete(root, 'rf')
 endfunction
 
@@ -122,7 +131,7 @@ function! Test_move_command_arg() abort
 
   call mail#index#open('inbox')
   call cursor(1, 1)
-  let out = execute('call mail#actions#move_to("archive")')
+  let out = execute('Move archive')
 
   call assert_match('Moved 1 message', out, 'move_to reports success')
   call assert_equal('', s:ftype(root . '/inbox/20260101T000000Z_dddddddd'),
@@ -130,7 +139,7 @@ function! Test_move_command_arg() abort
   call assert_equal('link', s:ftype(root . '/archive/20260101T000000Z_dddddddd'),
         \ 'dest label present')
 
-  bwipeout!
+  call s:wipe_index_buffers()
   call delete(root, 'rf')
 endfunction
 
@@ -144,11 +153,14 @@ function! Test_copy_then_delete_one_survives() abort
 
   call mail#index#open('inbox')
   call cursor(1, 1)
-  call mail#actions#copy('archive')     " now labelled inbox + archive
+  " :Copy is a -nargs=1 user command — a trailing " comment would be swallowed
+  " into the mailbox arg, so keep the command line bare.
+  Copy archive
 
+  " now labelled inbox + archive; drop the inbox label
   call cursor(1, 1)
   normal! dd
-  call mail#actions#write()             " drop the inbox label
+  silent write
 
   call assert_equal('', s:ftype(root . '/inbox/20260101T000000Z_eeeeeeee'),
         \ 'inbox label dropped')
@@ -159,7 +171,7 @@ function! Test_copy_then_delete_one_survives() abort
   call assert_true(isdirectory(root . '/.store/20260101T000000Z_eeeeeeee'),
         \ 'canon kept')
 
-  bwipeout!
+  call s:wipe_index_buffers()
   call delete(root, 'rf')
 endfunction
 
