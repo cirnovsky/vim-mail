@@ -6,8 +6,9 @@ A message is ONE object; mailboxes are labels. Filing the same message into a
 second mailbox just adds a second symlink to the same canonical dir (no byte
 duplication); read-state is shared through the one .store/<id>/.read.
 
-These tests pin the on-disk contract ingest_one() must produce. The Vim side
-(move = relink, delete = unlink, refcount via readdir) builds on this.
+These tests pin the on-disk contract ingest_one() must produce, feeding it real
+corpus .eml files. The Vim side (move = relink, delete = unlink, refcount via
+readdir) builds on this.
 
 Run: python3 tests/test_store.py
 """
@@ -19,7 +20,9 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent / 'scripts'))
+sys.path.insert(0, str(HERE))
 from mailstore import ingest  # noqa: E402
+import _fixtures  # noqa: E402
 
 PASS = 0
 FAIL = 0
@@ -35,25 +38,13 @@ def ok(name, cond, detail=''):
         FAIL += 1
 
 
-def make_raw(msgid, subject='Hi', body='hello world'):
-    return (
-        'From: A <a@example.com>\r\n'
-        'To: b@example.com\r\n'
-        f'Subject: {subject}\r\n'
-        'Date: Wed, 01 Jul 2026 12:00:00 +0000\r\n'
-        f'Message-ID: <{msgid}>\r\n'
-        '\r\n'
-        f'{body}\r\n'
-    ).encode()
-
-
 print('\n=== ingest writes canonical bytes to .store and a symlink to the mailbox ===')
 with tempfile.TemporaryDirectory() as tmp:
     root = Path(tmp)
     inbox = root / 'inbox'
     inbox.mkdir()
 
-    link = ingest.ingest_one(make_raw('m1@test'), inbox)
+    link = ingest.ingest_one(_fixtures.eml('plain'), inbox)
     ok('ingest returned the mailbox membership', link is not None)
     assert link is not None
     mid = link.name
@@ -64,7 +55,8 @@ with tempfile.TemporaryDirectory() as tmp:
     ok('canonical dir is a real directory (not a symlink)',
        canon.is_dir() and not canon.is_symlink())
     ok('canonical raw.eml holds the real bytes',
-       (canon / 'raw.eml').is_file() and b'hello world' in (canon / 'raw.eml').read_bytes())
+       (canon / 'raw.eml').is_file()
+       and b'This is a plain text message' in (canon / 'raw.eml').read_bytes())
     ok('canonical meta + body.txt present',
        (canon / 'meta').is_file() and (canon / 'body.txt').is_file())
 
@@ -73,7 +65,7 @@ with tempfile.TemporaryDirectory() as tmp:
        os.readlink(link) == os.path.join('..', '.store', mid), os.readlink(link))
     ok('symlink resolves into the store', link.resolve() == canon.resolve())
     ok('reads through the symlink work',
-       'Subject: Hi' in (link / 'meta').read_text())
+       'Subject: Plain hello' in (link / 'meta').read_text())
     ok('mailbox dir holds exactly one entry', len(list(inbox.iterdir())) == 1)
 
 
@@ -84,7 +76,7 @@ with tempfile.TemporaryDirectory() as tmp:
     archive = root / 'archive'
     inbox.mkdir()
     archive.mkdir()
-    raw = make_raw('shared@test')
+    raw = _fixtures.eml('html')
 
     a = ingest.ingest_one(raw, inbox)
     b = ingest.ingest_one(raw, archive)
@@ -104,7 +96,7 @@ with tempfile.TemporaryDirectory() as tmp:
     root = Path(tmp)
     inbox = root / 'inbox'
     inbox.mkdir()
-    raw = make_raw('dup@test')
+    raw = _fixtures.eml('multipart')
 
     first = ingest.ingest_one(raw, inbox)
     second = ingest.ingest_one(raw, inbox)
@@ -120,7 +112,7 @@ with tempfile.TemporaryDirectory() as tmp:
     archive = root / 'archive'
     inbox.mkdir()
     archive.mkdir()
-    raw = make_raw('readshare@test')
+    raw = _fixtures.eml('attachment')
     a = ingest.ingest_one(raw, inbox)
     b = ingest.ingest_one(raw, archive)
     assert a is not None and b is not None

@@ -1,0 +1,9 @@
+From: Bob <bob@example.com>
+To: me@example.com
+Subject: HTML greetings
+Date: Tue, 02 Jun 2026 10:00:00 +0000
+Message-ID: <html@example.com>
+MIME-Version: 1.0
+Content-Type: text/html; charset="utf-8"
+
+<html><body><p>Hello in <b>HTML</b>, with a <a href="https://example.com">link</a>.</p></body></html>

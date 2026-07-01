@@ -1,0 +1,18 @@
+From: Carol <carol@example.com>
+To: me@example.com
+Subject: Multipart alternative
+Date: Wed, 03 Jun 2026 11:00:00 +0000
+Message-ID: <multipart@example.com>
+MIME-Version: 1.0
+Content-Type: multipart/alternative; boundary="BOUND"
+
+--BOUND
+Content-Type: text/plain; charset="utf-8"
+
+Plain alternative body.
+
+--BOUND
+Content-Type: text/html; charset="utf-8"
+
+<html><body><p>HTML alternative body.</p></body></html>
+--BOUND--

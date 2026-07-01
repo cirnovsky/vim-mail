@@ -1,0 +1,19 @@
+From: Dave <dave@example.com>
+To: me@example.com
+Subject: With attachment
+Date: Thu, 04 Jun 2026 12:00:00 +0000
+Message-ID: <attachment@example.com>
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="MIX"
+
+--MIX
+Content-Type: text/plain; charset="utf-8"
+
+Please see the attached note.
+
+--MIX
+Content-Type: text/plain; name="note.txt"
+Content-Disposition: attachment; filename="note.txt"
+
+Contents of the attached note file.
+--MIX--

@@ -69,6 +69,9 @@ setup.sh                  one-off: prints vimrc + fetchmailrc config for this cl
 Makefile                  `make test` (local) / `make test-linux` (Docker)
 tests/run.sh              test runner: auto-discovers tests/test_*.{py,vim}
 tests/Dockerfile          Debian image to run the suite under Linux
+tests/fixtures/mail/      .eml corpus (plain/html/multipart/attachment/thread-*) — real messages
+tests/testlib/autoload/testmail.vim  shared generator: build a store from .eml via the real engine
+tests/_fixtures.py        Python fixtures: eml()/build_store()/legacy() (also via the real engine)
 tests/test_reply.py       reply/threading suite (Python)
 tests/test_store.py       content store: ingest -> .store + symlink, dedup, shared .read
 tests/test_migrate.py     migrate_store: flat store -> .store + symlinks, dedup, resumable
@@ -92,6 +95,20 @@ new suite by dropping a `test_*.py` or `test_*.vim` file in `tests/` — the
 runner picks it up automatically. Headless Vim tests use the built-in
 `assert_*` API, collect into `v:errors`, and `qall!`/`cquit!` to signal
 pass/fail via exit code.
+
+**Fixtures come from the real engine.** Store fixtures are built from real `.eml`
+files (`tests/fixtures/mail/*.eml`) run through the actual backend — never
+hand-shaped canons. Vim suites `set rtp+=<repo>/tests/testlib` and call
+`testmail#ingest`/`testmail#build`/`testmail#legacy` (which shell
+`mail_store.py ingest-stdin`); Python suites use `_fixtures.eml`/`build_store`/
+`legacy` (real `ingest.ingest_one`). Ids are derived from each message's
+Date+Message-ID, so tests **capture** the id from the build result rather than
+hardcoding it. `testmail#legacy` / `_fixtures.legacy` build a faithful
+pre-content-store real dir (ingest, then "de-symlink" the canon back into the
+mailbox) — the only way to get old-format mail, since no current verb emits it.
+`testmail#` also holds the shared `wipe_buffers`/`goto`/`ftype`/`has_entry`
+helpers (previously duplicated across every suite). Because Vim fixtures shell
+out to `python3`, these suites need it on `PATH` (the plugin requires it anyway).
 
 **`make test-linux`** builds `tests/Dockerfile` (Debian + `vim-nox`, Python) and
 runs the same suite under Linux, bind-mounting the repo (no rebuild between runs).
