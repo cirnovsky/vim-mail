@@ -40,14 +40,49 @@ function! mail#index#open(dir) abort
   " Build the link map L from readdirs (names only) — the refcount source for
   " last-label delete decisions across all loaded mailboxes.
   call mail#link#rebuild()
-  " Refresh from disk on first open, or when returning to an UNMODIFIED buffer
-  " (picks up newly-fetched mail). But NEVER refresh a reused buffer that has
-  " staged, uncommitted edits: navigating away and back with :Mail must not
-  " silently discard a pending dd / paste / read-toggle (that turned dd+p moves
-  " into accidental copies). Use R to refresh from disk on purpose.
+  " First open, or returning to an UNMODIFIED buffer: full refresh (picks up
+  " newly-fetched mail). Returning to a buffer with staged edits: DON'T
+  " full-refresh (it would discard the pending dd/paste/read-toggle — the bug that
+  " turned dd+p moves into accidental copies) — instead merge in only the mail
+  " that appeared on disk, leaving edited lines untouched. R still full-refreshes.
   if !reused || !&modified
     call mail#index#refresh()
+  else
+    call mail#index#_merge_new()
   endif
+endfunction
+
+" Insert mail that appeared on disk (e.g. a background fetch) but is in neither
+" this buffer's baseline nor its current lines, in newest-first order, WITHOUT
+" touching existing lines — so staged edits (reads, deletes, pastes) survive
+" while new mail still shows. No-op when there's nothing new. Called when
+" returning to a modified buffer; a staged-deleted message stays in the baseline
+" so it is NOT resurrected.
+function! mail#index#_merge_new() abort
+  let baseline_ids = {}
+  for e in b:mail_entries | let baseline_ids[e.id] = 1 | endfor
+  let buf_ids = {}
+  for ln in range(1, line('$'))
+    let l = getline(ln)
+    let tab = stridx(l, "\t")
+    if tab > 0 | let buf_ids[l[:tab - 1]] = 1 | endif
+  endfor
+  for e in mail#index#_read_entries(b:mail_dir)
+    if has_key(baseline_ids, e.id) || has_key(buf_ids, e.id) | continue | endif
+    let line = mail#index#_format_line(e.id, e.meta, e.read, 0)
+    let placed = 0
+    for ln in range(1, line('$'))
+      let l = getline(ln)
+      let tab = stridx(l, "\t")
+      if tab > 0 && l[:tab - 1] <# e.id    " newest-first: before the first smaller id
+        call append(ln - 1, line)
+        let placed = 1
+        break
+      endif
+    endfor
+    if !placed | call append(line('$'), line) | endif
+    call add(b:mail_entries, e)            " it's disk truth now, not a staged add
+  endfor
 endfunction
 
 " Read a mailbox dir from disk into the entry baseline list (sorted newest-first,
