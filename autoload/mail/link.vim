@@ -26,10 +26,6 @@ function! mail#link#rebuild() abort
   return s:map
 endfunction
 
-function! mail#link#map() abort
-  return s:map
-endfunction
-
 " How many mailboxes OTHER than exclude_name currently label <id>, per the last
 " rebuild(). Delete decisions call rebuild() first, then ask this to learn
 " whether dropping *this* mailbox's label leaves the message stranded.

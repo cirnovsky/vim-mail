@@ -7,8 +7,8 @@ let s:msgid_index_ok  = 0
 " Build {stripped-message-id → dir-path} across ALL mailboxes under g:mail_root.
 " For the current mailbox, entries are already in b:mail_entries (no disk I/O).
 " For other mailboxes, reads each message's meta file (fast: 6 lines vs full
-" raw.eml); falls back to raw.eml header extraction for pre-index messages
-" whose meta predates the Message-ID field.
+" raw.eml). Messages whose meta has no Message-ID are skipped (no raw.eml
+" fallback — too expensive at scale).
 function! mail#thread#_build_msgid_index() abort
   if s:msgid_index_ok
     return s:msgid_index
