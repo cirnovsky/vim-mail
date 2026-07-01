@@ -7,6 +7,13 @@ let b:did_ftplugin_mail_compose = 1
 " without its compose-oriented ftplugin — our own ftplugin owns behavior.
 setlocal syntax=mail
 
+" Quote-aware formatting for the reply/forward quote we auto-insert: gq/gw
+" reflow > and nested >> lines keeping their leaders (comments=n:>), and J
+" drops the redundant leader when joining quoted lines (fo 'j'). We never set
+" 'textwidth', so auto-wrap stays off (any inherited t/c flags are inert with
+" tw=0) — reflow is on-demand via gq only.
+setlocal comments=n:> formatoptions+=qj
+
 augroup mail_compose
   autocmd! * <buffer>
   autocmd BufWriteCmd <buffer> call mail#send#send()
