@@ -342,14 +342,21 @@ function! mail#index#_patch_lines(targets, Fn) abort
 endfunction
 
 " Refresh the index buffer showing <dir>, if one is open (used after fetch).
+" Repaint <dir>'s index after a fetch. A clean buffer is fully refreshed (shows
+" the new mail); a MODIFIED buffer is merged instead — new mail inserted, staged
+" edits untouched — so fetching never needs to prompt to discard them. A hidden
+" buffer (no window) is left for the next navigation, where open() does the same.
 function! mail#index#refresh_for(dir) abort
-  if has_key(s:index_bufnrs, a:dir) && bufexists(s:index_bufnrs[a:dir])
-    let winid = bufwinid(s:index_bufnrs[a:dir])
-    if winid != -1
-      let cur = win_getid()
-      call win_gotoid(winid)
-      call mail#index#refresh()
-      call win_gotoid(cur)
-    endif
+  let nr = get(s:index_bufnrs, a:dir, -1)
+  if nr <= 0 || !bufexists(nr) | return | endif
+  let winid = bufwinid(nr)
+  if winid == -1 | return | endif
+  let cur = win_getid()
+  call win_gotoid(winid)
+  if !&modified
+    call mail#index#refresh()
+  else
+    call mail#index#_merge_new()
   endif
+  call win_gotoid(cur)
 endfunction

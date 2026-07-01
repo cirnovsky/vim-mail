@@ -61,9 +61,36 @@ function! Test_fetch_into_modified_hidden_inbox() abort
   call delete(root, 'rf')
 endfunction
 
+" Same, but the modified inbox is VISIBLE when the fetch completes: refresh_for
+" must merge (not full-rebuild, which would discard the staged read) — so fetch
+" needs no guard.
+function! Test_fetch_into_modified_visible_inbox() abort
+  let root = tempname() . '/Mail'
+  let a = testmail#ingest(root, 'inbox', 'plain')
+  let b = testmail#ingest(root, 'inbox', 'html')
+  let g:mail_root = root
+
+  Mail inbox
+  call testmail#goto(a) | normal s              " A read (staged); inbox stays visible
+  let inbox_dir = b:mail_dir
+
+  let c = testmail#ingest_subject(root, 'inbox', 'New Mail')
+  call mail#index#refresh_for(inbox_dir)        " visible + modified -> merge, not rebuild
+
+  call assert_equal(3, len(getline(1, '$')), 'new mail merged into the visible buffer')
+  call assert_equal(0, s:buf_read(c), 'new mail shown, unread')
+  call assert_equal(1, s:buf_read(a), 'A still read (staged edit preserved)')
+  call assert_equal(0, s:buf_read(b), 'B still unread')
+  call assert_true(&modified, 'still modified (the staged read is uncommitted)')
+
+  call testmail#wipe_buffers()
+  call delete(root, 'rf')
+endfunction
+
 " --- runner ---
 let v:errors = []
-let s:tests = ['Test_fetch_into_modified_hidden_inbox']
+let s:tests = ['Test_fetch_into_modified_hidden_inbox',
+      \ 'Test_fetch_into_modified_visible_inbox']
 for s:t in s:tests
   try
     call call(s:t, [])

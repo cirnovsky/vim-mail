@@ -43,7 +43,7 @@ call assert_true(len(s:seen) >= 18, 'expected many refs, found ' . len(s:seen))
 " 3. Index ftplugin actually binds its mappings (default leader '\' under -u NONE).
 enew
 execute 'source ' . fnameescape(s:repo . '/ftplugin/mail-index.vim')
-for s:key in ['<CR>', 'o', 'v', 'r', 'f', 'F', 'M', 'R', 's', 'S', 'q',
+for s:key in ['<CR>', 'o', 'v', 'r', 'f', 'F', '-', 'R', 's', 'S', 'q',
       \ '\f', '\c', '\s']
   call assert_true(maparg(s:key, 'n') !=# '', 'index map ' . s:key . ' bound')
 endfor

@@ -17,41 +17,6 @@ runtime plugin/mail.vim
 runtime! autoload/mail/*.vim
 filetype plugin on   " wire the <buffer> keymaps + BufWriteCmd we drive below
 
-" Stub the mailbox prompt + confirm so actions run without interactive input.
-let g:test_move_dest = ''
-function! mail#mailbox#_prompt_mailbox(prompt, default) abort
-  return g:test_move_dest
-endfunction
-let g:test_confirm = 'discard'
-function! mail#actions#_confirm(msg) abort
-  return g:test_confirm
-endfunction
-
-" --- move relinks: source link gone, dest link present, canon intact ---
-function! Test_move_relinks() abort
-  let root = tempname() . '/Mail'
-  let id = testmail#ingest(root, 'inbox', 'plain')
-  call mkdir(root . '/archive', 'p')
-  let g:mail_root = root
-  let g:test_move_dest = 'archive'
-
-  call mail#index#open('inbox')
-  call cursor(1, 1)
-  let out = execute('normal M')
-
-  call assert_match('Moved 1 message', out, 'relink reports success')
-  call assert_equal('', testmail#ftype(root . '/inbox/' . id), 'source symlink removed')
-  call assert_equal('link', testmail#ftype(root . '/archive/' . id),
-        \ 'dest is a symlink (relink, not a copy of bytes)')
-  call assert_true(isdirectory(root . '/.store/' . id),
-        \ 'canonical bytes still live in .store')
-  call assert_true(filereadable(root . '/archive/' . id . '/raw.eml'),
-        \ 'dest link resolves to the bytes')
-
-  call testmail#wipe_buffers()
-  call delete(root, 'rf')
-endfunction
-
 " --- delete the last label -> message goes to trash (recoverable), canon kept ---
 function! Test_delete_last_link_to_trash() abort
   let root = tempname() . '/Mail'
@@ -139,7 +104,6 @@ endfunction
 " --- runner ---
 let v:errors = []
 let s:tests = [
-      \ 'Test_move_relinks',
       \ 'Test_delete_last_link_to_trash',
       \ 'Test_delete_one_of_two_labels',
       \ 'Test_permanent_delete_from_trash',

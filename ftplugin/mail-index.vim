@@ -24,15 +24,9 @@ nnoremap <buffer> <silent> x          :call mail#view#open_html()<CR>
 nnoremap <buffer> <expr>   t    mail#actions#_set_mark_opfunc()
 nmap     <buffer>          tt   t_
 nnoremap <buffer> <silent> T    :call mail#actions#clear_marks()<CR>
-nnoremap <buffer> <silent> M    :call mail#actions#move()<CR>
-" :Move/:M <mailbox> — relink move without the interactive prompt; :Copy adds a
-" label (keeps the source). Both tab-complete a mailbox name under g:mail_root.
-command! -buffer -nargs=1 -complete=customlist,mail#mailbox#_complete_mailbox Move
-      \ call mail#actions#move_to(<q-args>)
-command! -buffer -nargs=1 -complete=customlist,mail#mailbox#_complete_mailbox M
-      \ call mail#actions#move_to(<q-args>)
-command! -buffer -nargs=1 -complete=customlist,mail#mailbox#_complete_mailbox Copy
-      \ call mail#actions#copy(<q-args>)
+" Move = dd here + p there; copy = yy + p (committed on :w). `-` goes up to the
+" mailbox launcher, so opening the destination to paste into is the natural gesture.
+nnoremap <buffer> <silent> -    :call mail#mailboxlist#open()<CR>
 nnoremap <buffer> <silent> r           :call mail#compose#reply()<CR>
 nnoremap <buffer> <silent> f           :call mail#compose#forward()<CR>
 nnoremap <buffer> <silent> F           :call mail#compose#forward_attach()<CR>

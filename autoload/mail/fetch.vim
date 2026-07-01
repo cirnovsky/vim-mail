@@ -24,9 +24,8 @@ function! mail#fetch#fetch() abort
     echo 'A fetch is already in progress'
     return
   endif
-  if !mail#actions#_ok_to_refresh('Fetch')
-    return
-  endif
+  " No staged-edit guard: the completion repaint (refresh_for) merges new mail
+  " into a modified buffer instead of rebuilding it, so staged edits survive.
   let default_dir = exists('b:mail_dir') ? b:mail_dir : mail#mailbox#_resolve_mailbox('inbox')
   let default_name = fnamemodify(default_dir, ':t')
   let chosen = mail#mailbox#_prompt_mailbox('Fetch into mailbox [' . default_name . ']', '')

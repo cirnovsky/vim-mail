@@ -3,7 +3,9 @@ if exists('g:loaded_mail_plugin')
 endif
 let g:loaded_mail_plugin = 1
 
-command! -nargs=? -complete=customlist,mail#mailbox#_complete_mailbox Mail call mail#index#open(<q-args>)
+" :Mail       -> the read-only mailbox launcher (list of all mailboxes)
+" :Mail <box> -> open that mailbox directly
+command! -nargs=? -complete=customlist,mail#mailbox#_complete_mailbox Mail call mail#mailboxlist#mail_cmd(<q-args>)
 " One-off: migrate an existing flat store to the content-store (.store + symlinks).
 command! MailMigrate call mail#actions#migrate_store()
 

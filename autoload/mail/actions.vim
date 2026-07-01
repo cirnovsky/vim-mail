@@ -188,64 +188,6 @@ function! mail#actions#write() abort
   endfor
 endfunction
 
-" Three-way confirm for the staged-edit guard. Returns 'save' | 'discard' |
-" 'cancel'. Wrapped as its own function so tests can stub it (interactive
-" confirm() can't be driven in batch mode).
-function! mail#actions#_confirm(msg) abort
-  let n = confirm(a:msg, "&Save\n&Discard\n&Cancel", 3)
-  return n == 1 ? 'save' : (n == 2 ? 'discard' : 'cancel')
-endfunction
-
-" Disk actions that refresh the index (move, fetch) rebuild the buffer from disk,
-" discarding staged-but-unwritten edits (dd deletes, s/S read toggles). Guard
-" them: when the buffer has staged changes, ask. 1 = proceed (after optionally
-" writing them), 0 = abort. NOTE: 'Save' calls mail#actions#write(), which rebuilds
-" b:mail_entries — callers that pre-resolved targets must re-resolve by id after.
-function! mail#actions#_ok_to_refresh(action) abort
-  if !&modified
-    return 1
-  endif
-  let choice = mail#actions#_confirm(a:action
-        \ . ' will refresh the index and lose unwritten changes. Save them first?')
-  if choice ==# 'save'
-    call mail#actions#write()
-    return 1
-  endif
-  return choice ==# 'discard'
-endfunction
-
-" Resolve the current targets (marked, else current line) by id, run the
-" staged-edit guard, then re-resolve to entry indices (a 'Save' in the guard
-" rebuilds b:mail_entries). Returns [] if there's nothing to do or the guard
-" cancelled — shared by move/copy.
-function! s:_guarded_targets(action) abort
-  let target_ids = map(mail#index#_target_indexes(), 'b:mail_entries[v:val].id')
-  if empty(target_ids) | return [] | endif
-  if !mail#actions#_ok_to_refresh(a:action) | return [] | endif
-  let id2idx = mail#index#_id_to_idx()
-  let idxs = []
-  for tid in target_ids
-    if has_key(id2idx, tid) | call add(idxs, id2idx[tid]) | endif
-  endfor
-  return idxs
-endfunction
-
-" Resolve a destination mailbox to a full path. An empty name prompts; a
-" non-directory is reported. Returns '' on cancel/error.
-function! s:_resolve_dest(dest_name, prompt) abort
-  let name = a:dest_name
-  if name ==# ''
-    let name = mail#mailbox#_prompt_mailbox(a:prompt, '')
-    if name ==# '' | return '' | endif
-  endif
-  let dir = mail#mailbox#_resolve_mailbox(name)
-  if !isdirectory(dir)
-    echohl ErrorMsg | echom 'mail: not a directory: ' . dir | echohl None
-    return ''
-  endif
-  return dir
-endfunction
-
 " Ensure <dir> is a content-store symlink. A store symlink is left as-is; a
 " legacy real message dir is moved into <root>/.store/<id> and replaced by a
 " symlink (migrate-on-touch), so copy/link ops can share one canonical copy
@@ -268,92 +210,12 @@ function! mail#actions#_ensure_canonical(dir) abort
   call mail#actions#_make_link(id, mbox)
 endfunction
 
-" M keymap: prompt for the destination mailbox, then move.
-function! mail#actions#move() abort
-  call mail#actions#move_to('')
-endfunction
-
-" Move (relink) the targets into dest_name ('' = prompt). Content-store labels
-" relink (add dest, drop source; bytes never move); legacy real dirs physically
-" rename. The :Move command passes dest_name so no prompt is needed.
-function! mail#actions#move_to(dest_name) abort
-  let idxs = s:_guarded_targets('Move')
-  if empty(idxs) | return | endif
-  let dest_dir = s:_resolve_dest(a:dest_name, 'Move to mailbox')
-  if dest_dir ==# '' | return | endif
-  let dest_name = fnamemodify(dest_dir, ':t')
-  let moved  = 0
-  let failed = []
-  for idx in idxs
-    let entry  = b:mail_entries[idx]
-    let id     = entry.id
-    let target = dest_dir . '/' . id
-    if getftype(target) !=# ''
-      " Already labelled in dest — refuse (relink would clobber, rename fail).
-      call add(failed, '"' . id . '" already exists in ' . dest_name)
-    elseif getftype(entry.dir) ==# 'link'
-      " Content-store label: relink — add the dest label, drop the source one.
-      if mail#actions#_make_link(id, dest_dir) != 0
-        call add(failed, '"' . id . '" link failed')
-      else
-        call mail#actions#_unlink(entry.dir)
-        let moved += 1
-      endif
-    elseif rename(entry.dir, target) != 0
-      " Legacy real dir (pre content-store): physical move.
-      call add(failed, '"' . id . '" rename failed')
-    else
-      let moved += 1
-    endif
-  endfor
-  call mail#index#refresh()
-  if moved > 0
-    echom 'Moved ' . moved . ' message(s) to ' . dest_name
-  endif
-  if !empty(failed)
-    echohl ErrorMsg
-    echom 'mail: could not move ' . len(failed) . ' message(s): ' . join(failed, '; ')
-    echohl None
-  endif
-endfunction
-
-" Copy = add another mailbox label, keeping the source (a message can live in
-" many mailboxes — labels). dest_name '' = prompt. :Copy passes the name.
-function! mail#actions#copy(dest_name) abort
-  let idxs = s:_guarded_targets('Copy')
-  if empty(idxs) | return | endif
-  let dest_dir = s:_resolve_dest(a:dest_name, 'Copy to mailbox')
-  if dest_dir ==# '' | return | endif
-  let dest_name = fnamemodify(dest_dir, ':t')
-  let copied = 0
-  let failed = []
-  for idx in idxs
-    let entry  = b:mail_entries[idx]
-    let id     = entry.id
-    let target = dest_dir . '/' . id
-    if getftype(target) !=# ''
-      call add(failed, '"' . id . '" already exists in ' . dest_name)
-      continue
-    endif
-    " A legacy real dir must first become a store object so both mailboxes
-    " share one canonical copy (no byte duplication).
-    call mail#actions#_ensure_canonical(entry.dir)
-    if mail#actions#_make_link(id, dest_dir) != 0
-      call add(failed, '"' . id . '" link failed')
-    else
-      let copied += 1
-    endif
-  endfor
-  call mail#index#refresh()
-  if copied > 0
-    echom 'Copied ' . copied . ' message(s) to ' . dest_name
-  endif
-  if !empty(failed)
-    echohl ErrorMsg
-    echom 'mail: could not copy ' . len(failed) . ' message(s): ' . join(failed, '; ')
-    echohl None
-  endif
-endfunction
+" Move and copy are native buffer gestures now, committed on :w:
+"   dd here + p in another mailbox buffer  = move  (source unlinked, dest linked)
+"   yy      + p                            = copy  (source kept, dest linked)
+" Both reconcile through write() -> _add_pasted_labels (the add) + the delete
+" pass (the drop). There is no :M/:Move/:Copy command; `-` opens the launcher so
+" opening the destination to paste into is one keystroke.
 
 " :MailMigrate — convert the existing flat store under g:mail_root into the
 " content-store layout (.store/<id> + symlinks). Shells out to the Python
