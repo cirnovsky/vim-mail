@@ -30,6 +30,27 @@ function! testmail#ingest(root, mailbox, name) abort
   throw 'testmail: ingest produced no new entry in ' . mb . ' for ' . a:name
 endfunction
 
+" Ingest a message with an arbitrary <subject> (msgid derived from it) into
+" <root>/<mailbox> via the real backend. For scenario tests that search the
+" subject text (e.g. :g/pat/). Returns the id.
+function! testmail#ingest_subject(root, mailbox, subject) abort
+  let mb = a:root . '/' . a:mailbox
+  call mkdir(mb, 'p')
+  let before = {}
+  for e in glob(mb . '/*', 0, 1) | let before[fnamemodify(e, ':t')] = 1 | endfor
+  let msgid = substitute(a:subject, '[^A-Za-z0-9]', '', 'g')
+  let raw = join(['From: X <x@example.com>', 'To: me@example.com',
+        \ 'Subject: ' . a:subject, 'Date: Mon, 01 Jun 2026 09:00:00 +0000',
+        \ 'Message-ID: <' . msgid . '@example.com>', '', 'body', ''], "\n")
+  call system(g:mail_python . ' ' . shellescape(g:mail_store_py)
+        \ . ' ingest-stdin ' . shellescape(mb), raw)
+  for e in glob(mb . '/*', 0, 1)
+    let id = fnamemodify(e, ':t')
+    if !has_key(before, id) | return id | endif
+  endfor
+  throw 'testmail: no new entry for subject ' . a:subject
+endfunction
+
 " Declarative store builder. spec = list of dicts:
 "   {'name': <fixture>, 'in': [<mailbox>...], 'read': 0|1}
 " Ingests each fixture into its first mailbox and links it into the rest;

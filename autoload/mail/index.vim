@@ -1,10 +1,9 @@
 " The index buffer: rendering, batched redraws, line<->entry resolution.
 " Part of vim-mail; the frontend never parses MIME (that's mail_store.py).
 
-let s:index_bufnrs    = {}
-let s:pending_redraws = {}   " {bufnr: {idx: 1}} — lines queued for redraw
-let s:pending_syncs   = {}   " {bufnr: 1}        — buffers needing modified sync
-let s:batch_timer     = -1
+let s:index_bufnrs  = {}
+let s:pending_syncs = {}   " {bufnr: 1} — buffers needing a modified/line resync
+let s:batch_timer   = -1
 
 function! mail#index#open(dir) abort
   let dir = a:dir ==# '' ? mail#mailbox#_resolve_mailbox('inbox') : mail#mailbox#_resolve_mailbox(a:dir)
@@ -51,6 +50,46 @@ function! mail#index#open(dir) abort
   endif
 endfunction
 
+" Read a mailbox dir from disk into the entry baseline list (sorted newest-first,
+" .store/.tmp_* skipped). Shared by refresh() and _resync_baseline().
+function! mail#index#_read_entries(dir) abort
+  let dirs = []
+  for path in glob(a:dir . '/*', 0, 1)
+    if isdirectory(path) && fnamemodify(path, ':t') !~# '^\.'
+      call add(dirs, path)
+    endif
+  endfor
+  call sort(dirs)
+  call reverse(dirs)
+  let entries = []
+  for d in dirs
+    call add(entries, {'dir': d, 'id': fnamemodify(d, ':t'),
+          \ 'read': filereadable(d . '/.read'), 'meta': mail#index#_read_meta(d)})
+  endfor
+  return entries
+endfunction
+
+" Live index buffers (bufnr list), for cross-mailbox :w reconciliation.
+function! mail#index#_index_buffers() abort
+  let bufs = []
+  for [dir, nr] in items(s:index_bufnrs)
+    if bufexists(nr) && getbufvar(nr, 'mail_dir', '') ==# dir
+      call add(bufs, nr)
+    endif
+  endfor
+  return bufs
+endfunction
+
+" After :w commits another (non-current) buffer's staged edits, re-read its
+" mailbox into the baseline and clear &modified — WITHOUT rewriting its lines
+" (they already show the committed state; _flush_pending canonicalises later).
+function! mail#index#_resync_baseline(bnr) abort
+  let dir = getbufvar(a:bnr, 'mail_dir', '')
+  if dir ==# '' | return | endif
+  call setbufvar(a:bnr, 'mail_entries', mail#index#_read_entries(dir))
+  call setbufvar(a:bnr, '&modified', 0)
+endfunction
+
 function! mail#index#refresh() abort
   if !exists('b:mail_dir')
     echoerr 'Not a mail index buffer'
@@ -58,24 +97,10 @@ function! mail#index#refresh() abort
   endif
   call mail#thread#invalidate()
 
-  let raw = glob(b:mail_dir . '/*', 0, 1)
-  let dirs = []
-  for path in raw
-    if isdirectory(path) && fnamemodify(path, ':t') !~# '^\.'
-      call add(dirs, path)
-    endif
-  endfor
-  call sort(dirs)
-  call reverse(dirs)
-
-  let entries = []
+  let entries = mail#index#_read_entries(b:mail_dir)
   let lines = []
-  for d in dirs
-    let meta = mail#index#_read_meta(d)
-    let read = filereadable(d . '/.read')
-    let id = fnamemodify(d, ':t')
-    call add(entries, {'dir': d, 'id': id, 'read': read, 'meta': meta})
-    call add(lines, mail#index#_format_line(id, meta, read, 0))
+  for e in entries
+    call add(lines, mail#index#_format_line(e.id, e.meta, e.read, 0))
   endfor
 
   let b:mail_entries = entries
@@ -149,15 +174,6 @@ function! mail#index#_format_line(id, meta, read, marked) abort
         \ . mail#index#_trunc(a:meta.from, 28) . '  ' . a:meta.subject
 endfunction
 
-function! mail#index#_redraw_line(idx) abort
-  let bnr = bufnr('%')
-  if !has_key(s:pending_redraws, bnr)
-    let s:pending_redraws[bnr] = {}
-  endif
-  let s:pending_redraws[bnr][a:idx] = 1
-  call s:_schedule_flush()
-endfunction
-
 " True buffer "modified" should mean "there are staged changes" (staged
 " deletes or read/unread state that differs from disk), not merely "we
 " last called setline()" - this resyncs &modified to that.
@@ -176,10 +192,8 @@ endfunction
 function! mail#index#_flush_pending(timer) abort
   let s:batch_timer = -1
   let all_bnrs = {}
-  for k in keys(s:pending_redraws) | let all_bnrs[k] = 1 | endfor
-  for k in keys(s:pending_syncs)   | let all_bnrs[k] = 1 | endfor
-  let s:pending_redraws = {}
-  let s:pending_syncs   = {}
+  for k in keys(s:pending_syncs) | let all_bnrs[k] = 1 | endfor
+  let s:pending_syncs = {}
 
   for bnr_str in keys(all_bnrs)
     let bnr     = str2nr(bnr_str)

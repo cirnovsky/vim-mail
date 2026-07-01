@@ -2,7 +2,7 @@
 " p and real :w through the index buffer's keymaps + BufWriteCmd — no append()
 " of fabricated lines, no direct call to write().
 "   yy + p into another mailbox  = copy  (source keeps its label)
-"   dd + p into another mailbox  = move  (once BOTH buffers are :w-ritten)
+"   dd + p into another mailbox  = move  (one :w commits both the add and the drop)
 " A pasted line whose id resolves to nothing (stray register paste) is ignored.
 "
 " Fixtures come from real .eml files via the shared generator (testmail#*); the
@@ -38,7 +38,7 @@ function! Test_yy_paste_is_copy() abort
   call delete(root, 'rf')
 endfunction
 
-" --- dd + p = move once BOTH buffers are :w-ritten ---
+" --- dd + p = move, committed by a SINGLE :w (which commits all modified bufs) ---
 function! Test_dd_paste_is_move() abort
   let root = tempname() . '/Mail'
   let id = testmail#ingest(root, 'inbox', 'plain')
@@ -46,22 +46,16 @@ function! Test_dd_paste_is_move() abort
   let g:mail_root = root
 
   call mail#index#open('inbox')
-  let inbox_buf = bufnr('%')
-  call testmail#goto(id) | normal! dd        " cut the line
+  call testmail#goto(id) | normal! dd        " cut the line (staged delete in inbox)
   call mail#index#open('archive')
-  normal! p                                  " paste into archive
-  silent write                               " archive gains the label (copy so far)
+  normal! p                                  " paste into archive (staged add)
+  silent write                               " ONE :w commits both -> net move
 
-  call assert_equal('link', testmail#ftype(root . '/archive/' . id), 'archive gained the label')
-  call assert_equal('link', testmail#ftype(root . '/inbox/' . id),
-        \ 'inbox still labelled until its buffer is written')
-
-  call mail#index#open('inbox')              " navigate back with :Mail, like a human
-  call assert_true(&modified, 'staged dd survives :Mail navigation back to source')
-  silent write                               " commit inbox's cut -> net move
-
-  call assert_equal('', testmail#ftype(root . '/inbox/' . id), 'inbox label dropped -> net move')
-  call assert_equal('link', testmail#ftype(root . '/archive/' . id), 'archive label remains')
+  call assert_equal('', testmail#ftype(root . '/inbox/' . id),
+        \ 'inbox label dropped by the same :w -> net move')
+  call assert_equal('link', testmail#ftype(root . '/archive/' . id), 'archive label present')
+  call assert_false(isdirectory(root . '/trash/' . id),
+        \ 'not trashed — the add commits before the drop, so the refcount sees the dest')
   call assert_true(isdirectory(root . '/.store/' . id), 'canon intact through the move')
 
   call testmail#wipe_buffers()

@@ -124,61 +124,68 @@ function! mail#actions#_delete_entry(entry, mbox_dir, trash_root) abort
   endif
 endfunction
 
-" BufWriteCmd handler: dd/d3j/:g//d etc. only remove lines from the
-" buffer; this is where that staged delete actually hits disk. Deleting a
-" message drops its label for THIS mailbox; when that was the message's last
-" label it falls to ~/Mail/trash (recoverable), and deleting from ~/Mail/trash
-" itself removes the canonical bytes permanently.
+" BufWriteCmd handler. `:w` commits the staged edits of the current index buffer
+" AND every other modified index buffer — one write reconciles all mailboxes.
+"
+" Reconciliation runs in two phases across all those buffers, because a
+" dd-here / paste-there move must add the destination label BEFORE dropping the
+" source one: otherwise the refcount sees the source as the message's last label
+" and sends it to trash. Phase 1 does read-marks + pasted-label ADDS and collects
+" the deletes; phase 2 executes the deletes once every add is on disk.
 function! mail#actions#write() abort
-  " Parse surviving buffer lines into {id: read_bool}
-  let buf_state = {}
-  for l in getline(1, '$')
-    let tab = stridx(l, "\t")
-    if tab > 0
-      let buf_state[l[:tab - 1]] = l[tab + 1] !=# 'N'
-    endif
+  let cur  = bufnr('%')
+  let bufs = [cur]
+  for bnr in mail#index#_index_buffers()
+    if bnr != cur && getbufvar(bnr, '&modified') | call add(bufs, bnr) | endif
   endfor
 
   let trash_root = mail#mailbox#_normdir(get(g:, 'mail_root', '~/Mail')) . '/trash'
-  let in_trash   = (mail#mailbox#_normdir(b:mail_dir) ==# trash_root)
-  let removed = 0
+  let pending = []      " [ [entry, mail_dir], ... ] deletes deferred to phase 2
+  let added   = 0
 
-  " Snapshot the link map once, before any unlink — the delete loop's last-label
-  " decisions read it (count_others excludes this mailbox, so a just-unlinked
-  " label here doesn't skew the count).
-  call mail#link#rebuild()
-
-  let baseline = {}
-  for entry in b:mail_entries
-    let baseline[entry.id] = 1
-    if !has_key(buf_state, entry.id)
-      " Staged delete: drop this mailbox's label (see _delete_entry).
-      call mail#actions#_delete_entry(entry, b:mail_dir, trash_root)
-      let removed += 1
-    else
-      " Reconcile read state: buffer is authoritative, align disk to it
-      let buf_read  = buf_state[entry.id]
-      let disk_read = filereadable(entry.dir . '/.read')
-      if buf_read && !disk_read
-        call writefile([], entry.dir . '/.read')
-      elseif !buf_read && disk_read
-        call delete(entry.dir . '/.read')
+  " --- Phase 1: reconcile reads + add pasted labels; collect deletes ---
+  for bnr in bufs
+    let mail_dir = getbufvar(bnr, 'mail_dir', '')
+    if mail_dir ==# '' | continue | endif
+    let buf_state = {}
+    for l in getbufline(bnr, 1, '$')
+      let tab = stridx(l, "\t")
+      if tab > 0 | let buf_state[l[:tab - 1]] = l[tab + 1] !=# 'N' | endif
+    endfor
+    let baseline = {}
+    for entry in getbufvar(bnr, 'mail_entries', [])
+      let baseline[entry.id] = 1
+      if !has_key(buf_state, entry.id)
+        call add(pending, [entry, mail_dir])                 " staged delete
+      else
+        let buf_read  = buf_state[entry.id]
+        let disk_read = filereadable(entry.dir . '/.read')
+        if buf_read && !disk_read
+          call writefile([], entry.dir . '/.read')
+        elseif !buf_read && disk_read
+          call delete(entry.dir . '/.read')
+        endif
       endif
-    endif
+    endfor
+    let added += mail#actions#_add_pasted_labels(keys(buf_state), baseline, mail_dir)
   endfor
 
-  " Lines pasted from another mailbox (native dd+p / yy+p): link them here.
-  let added = mail#actions#_add_pasted_labels(keys(buf_state), baseline, b:mail_dir)
+  " --- Phase 2: execute deletes; the link map now reflects every add, so a
+  "     moved message's dest label is counted and the source isn't trashed. ---
+  call mail#link#rebuild()
+  for [entry, mail_dir] in pending
+    call mail#actions#_delete_entry(entry, mail_dir, trash_root)
+  endfor
 
-  if removed > 0
-    echom 'Deleted ' . removed . ' message(s)'
-          \ . (in_trash ? ' permanently' : ' to ~/Mail/trash')
-  endif
-  if added > 0
-    echom 'Linked ' . added . ' message(s) into ' . fnamemodify(b:mail_dir, ':t')
-  endif
+  if len(pending) > 0 | echom 'Deleted ' . len(pending) . ' message(s)' | endif
+  if added > 0        | echom 'Linked ' . added . ' message(s)' | endif
+
+  " Refresh the current buffer (it ends with nomodified); resync the others'
+  " baselines + clear &modified.
   call mail#index#refresh()
-  setlocal nomodified
+  for bnr in bufs
+    if bnr != cur | call mail#index#_resync_baseline(bnr) | endif
+  endfor
 endfunction
 
 " Three-way confirm for the staged-edit guard. Returns 'save' | 'discard' |

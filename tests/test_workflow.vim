@@ -46,21 +46,18 @@ function! Test_staged_move_with_read_marks() abort
   call testmail#goto(id_move) | normal! dd      " cut the line (native dd)
   call assert_true(&modified, 'inbox has staged, uncommitted edits')
 
-  " --- :b archive, p, :w ---
+  " --- :b archive, paste the cut line (staged; do NOT :w yet) ---
   call mail#index#open('archive')               " refresh cuts into "_ , yank survives
   let arch_buf = bufnr('%')
   normal! p                                     " paste the cut line (native p)
-  silent write                                  " :w -> BufWriteCmd -> archive gains label
 
-  call assert_equal('link', testmail#ftype(root . '/archive/' . id_move), 'archive linked on :w')
-  call assert_equal('link', testmail#ftype(root . '/inbox/' . id_move),
-        \ 'inbox still linked until its own :w')
-
-  " --- navigate back to inbox with :Mail (like a human!), then :w ---
+  " --- navigate back to inbox with :Mail (like a human!); staged edits survive ---
   call mail#index#open('inbox')
   call assert_equal(inbox_buf, bufnr('%'), ':Mail returned to the same inbox buffer')
   call assert_true(&modified, 'staged edits survived :Mail navigation (not refreshed away)')
-  silent write                                  " :w -> BufWriteCmd -> write()
+
+  " --- ONE :w commits ALL modified buffers: inbox (reads + cut) AND archive (paste) ---
+  silent write
 
   " ===== 1. moved to archive, on F and T =====
   call assert_equal('link', testmail#ftype(root . '/archive/' . id_move),
