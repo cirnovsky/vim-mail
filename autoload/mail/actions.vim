@@ -49,6 +49,45 @@ function! mail#actions#_unlink(dir) abort
   call delete(a:dir)
 endfunction
 
+" Find a mailbox (other than exclude_dir) that physically holds an entry named
+" <id> — the source of a pasted, not-yet-migrated legacy message.
+function! mail#actions#_find_source(id, exclude_dir) abort
+  let root = mail#mailbox#_normdir(get(g:, 'mail_root', '~/Mail'))
+  let excl = mail#mailbox#_normdir(a:exclude_dir)
+  for mbox in glob(root . '/*', 0, 1)
+    if !isdirectory(mbox) || fnamemodify(mbox, ':t') ==# '.store' | continue | endif
+    if mail#mailbox#_normdir(mbox) ==# excl | continue | endif
+    if getftype(mbox . '/' . a:id) !=# '' | return mbox . '/' . a:id | endif
+  endfor
+  return ''
+endfunction
+
+" Link ids present in the buffer but absent from the disk baseline — lines
+" pasted from another mailbox's index (native yy+p = copy, dd+p = move once the
+" source buffer is also written). Each must resolve to a canonical object (or a
+" legacy source dir, migrated on touch); a line that resolves to nothing (stray
+" yank / garbage) is ignored. Returns the count linked.
+function! mail#actions#_add_pasted_labels(buf_ids, baseline, mbox_dir) abort
+  let store = mail#actions#_store_root()
+  let added = 0
+  for id in a:buf_ids
+    if has_key(a:baseline, id) | continue | endif
+    if getftype(a:mbox_dir . '/' . id) !=# '' | continue | endif   " already linked here
+    if isdirectory(store . '/' . id)
+      if mail#actions#_make_link(id, a:mbox_dir) == 0 | let added += 1 | endif
+    else
+      " Maybe a legacy real dir for this id lives in another mailbox — migrate it
+      " into the store, then link. Otherwise the id is unresolvable: ignore it.
+      let src = mail#actions#_find_source(id, a:mbox_dir)
+      if src !=# ''
+        call mail#actions#_ensure_canonical(src)
+        if mail#actions#_make_link(id, a:mbox_dir) == 0 | let added += 1 | endif
+      endif
+    endif
+  endfor
+  return added
+endfunction
+
 " Commit one staged delete of <entry> from mailbox <mbox_dir>.
 "   symlink label  -> unlink; if it was the last label, fall to trash (or, when
 "                     already in trash, permanently rm the canonical bytes).
@@ -109,7 +148,9 @@ function! mail#actions#write() abort
   " label here doesn't skew the count).
   call mail#link#rebuild()
 
+  let baseline = {}
   for entry in b:mail_entries
+    let baseline[entry.id] = 1
     if !has_key(buf_state, entry.id)
       " Staged delete: drop this mailbox's label (see _delete_entry).
       call mail#actions#_delete_entry(entry, b:mail_dir, trash_root)
@@ -126,9 +167,15 @@ function! mail#actions#write() abort
     endif
   endfor
 
+  " Lines pasted from another mailbox (native dd+p / yy+p): link them here.
+  let added = mail#actions#_add_pasted_labels(keys(buf_state), baseline, b:mail_dir)
+
   if removed > 0
     echom 'Deleted ' . removed . ' message(s)'
           \ . (in_trash ? ' permanently' : ' to ~/Mail/trash')
+  endif
+  if added > 0
+    echom 'Linked ' . added . ' message(s) into ' . fnamemodify(b:mail_dir, ':t')
   endif
   call mail#index#refresh()
   setlocal nomodified
