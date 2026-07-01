@@ -36,6 +36,9 @@ function! mail#index#open(dir) abort
     let s:index_bufnrs[dir] = bufnr('%')
   endif
   setlocal filetype=mail-index
+  " Build the link map L from readdirs (names only) — the refcount source for
+  " last-label delete decisions across all loaded mailboxes.
+  call mail#link#rebuild()
   call mail#index#refresh()
 endfunction
 
