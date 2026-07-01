@@ -93,6 +93,8 @@ generate/update it for the current machine.
 Each line: `<id>\t<N|space><*|space> <date>  <from>  <subject>`
 
 - `id` is concealed (`conceallevel=2`)
+- current line underlined: buffer-local `cursorline` + `CursorLine` restyled to a
+  plain (no-background) underline in `ftplugin/mail-index.vim`
 - `N` = unread, space = read; `*` = marked, space = unmarked
 - `dd`/`d3j`/`:g//d` work natively — Vim's own delete machinery
 - `b:mail_entries` = disk baseline (`[{id, dir, read, meta}]`), ordered by original sort

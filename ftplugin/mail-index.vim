@@ -5,6 +5,12 @@ let b:did_ftplugin_mail_index = 1
 
 setlocal conceallevel=2 concealcursor=nvc
 
+" Underline the message the cursor is on. cursorline is buffer-local (shows only
+" in the index); CursorLine is restyled as a plain underline with no background
+" box so it reads as an underline rather than a highlighted band.
+setlocal cursorline
+highlight CursorLine cterm=underline gui=underline ctermbg=NONE guibg=NONE
+
 augroup mail_index
   autocmd! * <buffer>
   autocmd BufWriteCmd  <buffer> call mail#actions#write()
