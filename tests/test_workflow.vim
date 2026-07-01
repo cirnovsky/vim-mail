@@ -97,9 +97,13 @@ function! Test_staged_move_with_read_marks() abort
   call assert_equal('link', s:ftype(root . '/inbox/' . id_move),
         \ 'inbox still linked until its own :w')
 
-  " --- :b inbox, :w  -> commits the move AND the staged read marks ---
-  execute 'buffer' inbox_buf
-  call assert_true(&modified, 'inbox staged edits survived the round trip')
+  " --- navigate back to inbox with :Mail (like a human!), then :w ---
+  " Regression: :Mail reused the buffer and refresh()ed it, silently discarding
+  " the staged dd -> the move degraded to a copy. Returning here must preserve
+  " the staged edits.
+  call mail#index#open('inbox')
+  call assert_equal(inbox_buf, bufnr('%'), ':Mail returned to the same inbox buffer')
+  call assert_true(&modified, 'staged edits survived :Mail navigation (not refreshed away)')
   silent write                                  " :w -> BufWriteCmd -> write()
 
   " ===== 1. moved to archive, on F and T =====

@@ -170,6 +170,16 @@ Because *Save* rebuilds `b:mail_entries`, `mail#actions#move()` captures its tar
 (insert fetched lines / drop moved lines) so staged edits survive without a
 discard prompt — deferred; the guard is the floor.
 
+**`:Mail` navigation must not discard staged edits.** `mail#index#open()` reuses
+an already-open index buffer; it refreshes on first open, or when returning to an
+**unmodified** buffer (picks up new mail), but **skips the refresh when the reused
+buffer is `&modified`** (staged dd / paste / read-toggle pending). Otherwise
+navigating away and back with `:Mail` would silently rebuild the buffer from disk
+and drop a pending `dd` — turning a `dd`+`p` move into an accidental copy (the
+source link never gets unlinked). Regression-tested in `test_workflow.vim` /
+`test_paste.vim`, which navigate back via `mail#index#open` (the `:Mail` path),
+not a raw `:buffer` switch.
+
 ## Key implementation details
 
 **ID-based line resolution (critical)**

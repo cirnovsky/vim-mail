@@ -100,7 +100,8 @@ function! Test_dd_paste_is_move() abort
   call assert_equal('link', s:ftype(root . '/inbox/' . id),
         \ 'inbox still labelled until its buffer is written')
 
-  execute 'buffer' inbox_buf
+  call mail#index#open('inbox')          " navigate back with :Mail, like a human
+  call assert_true(&modified, 'staged dd survives :Mail navigation back to source')
   silent write                           " commit inbox's cut -> net move
 
   call assert_equal('', s:ftype(root . '/inbox/' . id), 'inbox label dropped -> net move')

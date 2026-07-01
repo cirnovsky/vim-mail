@@ -16,6 +16,7 @@ function! mail#index#open(dir) abort
   " Reuse only a live buffer that is genuinely our index for this dir — a stale
   " map entry (buffer wiped by `q`, or its number reused) must fall through.
   let nr = get(s:index_bufnrs, dir, -1)
+  let reused = 0
   if nr > 0 && bufexists(nr) && getbufvar(nr, 'mail_dir', '') ==# dir
     let winid = bufwinid(nr)
     if winid != -1
@@ -23,6 +24,7 @@ function! mail#index#open(dir) abort
     else
       execute 'buffer ' . nr
     endif
+    let reused = 1
   else
     " New index buffer. The name must NOT look like a filesystem path: the old
     " 'mail://' . dir produced 'mail:///Users/…/inbox', which Vim parses as a URL
@@ -34,12 +36,19 @@ function! mail#index#open(dir) abort
     silent! noautocmd execute 'file ' . fnameescape('mail://' . fnamemodify(dir, ':t'))
     let b:mail_dir = dir
     let s:index_bufnrs[dir] = bufnr('%')
+    setlocal filetype=mail-index
   endif
-  setlocal filetype=mail-index
   " Build the link map L from readdirs (names only) — the refcount source for
   " last-label delete decisions across all loaded mailboxes.
   call mail#link#rebuild()
-  call mail#index#refresh()
+  " Refresh from disk on first open, or when returning to an UNMODIFIED buffer
+  " (picks up newly-fetched mail). But NEVER refresh a reused buffer that has
+  " staged, uncommitted edits: navigating away and back with :Mail must not
+  " silently discard a pending dd / paste / read-toggle (that turned dd+p moves
+  " into accidental copies). Use R to refresh from disk on purpose.
+  if !reused || !&modified
+    call mail#index#refresh()
+  endif
 endfunction
 
 function! mail#index#refresh() abort
