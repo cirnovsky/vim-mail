@@ -31,6 +31,9 @@ let g:mail_from = 'Your Name <you@gmail.com>'
 
 `:Mail` opens the inbox.
 
+`:Mail` shows a read-only list of your folders; `<CR>` enters one, `-` goes back.
+Inside a folder:
+
 | Key | Does |
 |---|---|
 | `<leader>f` | Fetch new mail |
@@ -40,14 +43,15 @@ let g:mail_from = 'Your Name <you@gmail.com>'
 | `x` / `gm` | HTML in browser / browse attachments |
 | `/` `<leader>s` | Search headers / full text |
 | `dd` | Delete — drop this folder's label (staged; `:w` commits) |
-| `M` `:Move name` / `:Copy name` | Move / also-file in another folder |
-| `dd`+`p` / `yy`+`p` | Move / copy across open folder buffers |
+| `dd`+`p` / `yy`+`p` | Move / copy: cut/yank here, paste into another folder buffer |
 | `s` / `S` | Mark read / unread (staged) |
-| `q` | Close |
+| `-` / `q` | Up to the folder list / close |
 
-Deletes and read-marks are **staged** — nothing hits disk until `:w`. A message
-carries folder-labels; deleting drops one, and the last one falling sends it to
-`trash/`. `M`/`:Move`/`:Copy` apply immediately; `dd`/`yy` + `p` commit on `:w`.
+Deletes, read-marks, and moves are **staged** — nothing hits disk until `:w`. A
+message carries folder-labels; deleting drops one, and the last one falling sends
+it to `trash/`. Move is `dd` here + `p` in another folder's buffer (`yy`+`p` to
+copy) — one `:w` commits it. There's no move/copy *command*; the folder list (`-`)
+makes opening the destination to paste into one keystroke.
 
 Compose buffers (`r`/`f`/`<leader>c`) send on `:w`. `:Attach`/`<leader>A` attach a
 file, `<leader>a` a clipboard file, `<leader>p` a clipboard image inline.
@@ -69,8 +73,8 @@ resumable, dedupes cross-folder copies. Old mail keeps working until you do.
 - Optimization at scale.
 - Message reflow/formatting.
 - Actionable link/attachment placeholders + `[N]` jumps.
-- Non-destructive refresh (keep staged edits on `M`/`<leader>f`).
-- Vim-native operator keymaps (unify `t`/`s`/`S`/`M`/`dd`).
+- Vim-native operator keymaps (unify `t`/`s`/`S`/`dd`).
+- Optional batch `:M`/`:Move` command (dropped for now; move is `dd`+`p`).
 - CI clipboard (xclip) testing.
 - undo after saving — currently after `:w` undo history will be lost.
 
