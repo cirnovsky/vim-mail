@@ -56,6 +56,29 @@ makes opening the destination to paste into one keystroke.
 Compose buffers (`r`/`f`/`<leader>c`) send on `:w`. `:Attach`/`<leader>A` attach a
 file, `<leader>a` a clipboard file, `<leader>p` a clipboard image inline.
 
+## Tricks
+
+**Bulk-move by pattern.** `dd`+`p` moves one message. To move *every* message
+matching a pattern at once, collect them into a named register with a
+**capital-letter (append) register**, then paste into the destination folder:
+
+```vim
+:g/invoice/d A      " delete each matching line, APPENDING it to register a
+```
+
+then open the destination (`-` to the folder list, `<CR>` to enter it), `"ap`,
+and `:w`.
+
+Why the capital `A`? `:g/pat/d` runs a *separate* delete per match, and each
+delete **overwrites** the unnamed register — so plain `:g/pat/d` + `p` pastes
+only the last match. An uppercase register **appends**, so register `a`
+accumulates every match and `"ap` pastes them all. (Lowercase = overwrite,
+uppercase = append — for any register: `"Ayy`, `:g/pat/y A`, …)
+
+Note: a message you `s`-mark read and move in the *same* `:w` lands **unread** —
+the staged read-mark doesn't survive a move. Mark read after moving, or in a
+separate `:w`.
+
 ## Caveats
 
 - Clipboard `<leader>a`/`<leader>p`: macOS out of the box; Linux needs
