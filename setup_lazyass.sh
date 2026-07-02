@@ -43,14 +43,6 @@ done
 REPO=$(cd -P "$(dirname "$SELF")" && pwd)
 [ -f "$REPO/scripts/mail_store.py" ] || die "scripts/mail_store.py not found in this repo ($REPO)"
 
-# --- precaution / confirm ---------------------------------------------------
-warn "This will edit system files (/etc/postfix/main.cf + sasl_passwd), (re)start"
-warn "Postfix, and write ~/.fetchmailrc. Changes are backed up to *.vimmail.*.bak,"
-warn "but this is best-effort — it's an automated version of mail-setup.md's steps."
-[ "$OS" = "Linux" ] && warn "NOTE: the Linux path is UNTESTED. Verify each step or follow mail-setup.md by hand."
-printf 'Proceed? [y/N]: '; read -r ANS
-case $ANS in [Yy]|[Yy][Ee][Ss]) ;; *) die "Aborted." ;; esac
-
 # --- provider profiles ------------------------------------------------------
 # Basic-auth (app-password) providers. OAuth-only ones are rejected below.
 PROVIDER=""; SMTP_HOST=""; SMTP_PORT=""; IMAP_HOST=""; APPPW_HELP=""
@@ -94,6 +86,19 @@ set_provider() {  # $1 = lowercased email domain
     *) return 1 ;;
   esac
 }
+
+# When sourced with VIMMAIL_TEST=1, load only the helpers/profiles above and stop
+# here, so tests can exercise set_provider without the interactive install flow.
+# (Safe when executed: the guard is false, so `return` never runs at top level.)
+[ "${VIMMAIL_TEST:-}" = 1 ] && return 0
+
+# --- precaution / confirm ---------------------------------------------------
+warn "This will edit system files (/etc/postfix/main.cf + sasl_passwd), (re)start"
+warn "Postfix, and write ~/.fetchmailrc. Changes are backed up to *.vimmail.*.bak,"
+warn "but this is best-effort — it's an automated version of mail-setup.md's steps."
+[ "$OS" = "Linux" ] && warn "NOTE: the Linux path is UNTESTED. Verify each step or follow mail-setup.md by hand."
+printf 'Proceed? [y/N]: '; read -r ANS
+case $ANS in [Yy]|[Yy][Ee][Ss]) ;; *) die "Aborted." ;; esac
 
 # --- prompts ----------------------------------------------------------------
 printf 'Email address: '; read -r EMAIL
