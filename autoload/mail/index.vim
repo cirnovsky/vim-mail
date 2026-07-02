@@ -45,9 +45,15 @@ function! mail#index#open(dir) abort
   " full-refresh (it would discard the pending dd/paste/read-toggle — the bug that
   " turned dd+p moves into accidental copies) — instead merge in only the mail
   " that appeared on disk, leaving edited lines untouched. R still full-refreshes.
-  if !reused || !&modified
-    call mail#index#refresh()
+  if !reused
+    call mail#index#refresh()                     " first open: full render
+  elseif !&modified
+    " Reused, clean: pick up newly-fetched mail incrementally and re-baseline,
+    " WITHOUT a destroy-recreate — so undo survives navigation.
+    call mail#index#_merge_new()
+    call mail#index#_resync_baseline(bufnr('%'))
   else
+    " Reused, staged edits: merge new mail, keep the edits (and undo).
     call mail#index#_merge_new()
   endif
 endfunction
@@ -353,10 +359,10 @@ function! mail#index#refresh_for(dir) abort
   if winid == -1 | return | endif
   let cur = win_getid()
   call win_gotoid(winid)
-  if !&modified
-    call mail#index#refresh()
-  else
-    call mail#index#_merge_new()
-  endif
+  " Merge new mail incrementally (undo-preserving). A clean buffer is then
+  " re-baselined; a modified one keeps its staged edits.
+  let was_modified = &modified
+  call mail#index#_merge_new()
+  if !was_modified | call mail#index#_resync_baseline(bufnr('%')) | endif
   call win_gotoid(cur)
 endfunction

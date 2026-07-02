@@ -70,19 +70,6 @@ function! testmail#build(root, spec) abort
   return ids
 endfunction
 
-" Build a faithful LEGACY (pre content-store) real dir: ingest via the real
-" backend (so contents are exactly production's — meta/raw.eml/body.txt/…), then
-" "de-symlink" — drop the mailbox symlink and move the canon back into the
-" mailbox as a real directory. Returns the id.
-function! testmail#legacy(root, mailbox, name) abort
-  let id    = testmail#ingest(a:root, a:mailbox, a:name)
-  let link  = a:root . '/' . a:mailbox . '/' . id
-  let canon = a:root . '/.store/' . id
-  call delete(link)             " remove the symlink (never follows into canon)
-  call rename(canon, link)      " canon dir -> real dir in the mailbox
-  return id
-endfunction
-
 " --- buffer/utility helpers shared by the index suites ---
 
 " Wipe every index buffer (they're named by mailbox basename, so leftovers would

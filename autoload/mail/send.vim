@@ -110,7 +110,7 @@ function! mail#send#send() abort
   let py_cmd   = mail#util#py_cmd()
   let orig_arg = exists('b:mail_compose_orig_dir')
         \ ? ' ' . shellescape(b:mail_compose_orig_dir) : ' ""'
-  let sent_dir = mail#mailbox#_normdir(get(g:, 'mail_root', '~/Mail')) . '/sent'
+  let sent_dir = mail#mailbox#root() . '/sent'
   let result   = system(py_cmd . ' send ' . shellescape(tmpfile)
         \ . orig_arg . ' ' . shellescape(sent_dir))
   call delete(tmpfile)

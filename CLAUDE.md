@@ -24,20 +24,25 @@ directory of **relative symlinks** into it. Membership = a label.
 
 - `<id>` (the store dir basename) is the stable per-line ID in the index buffer.
 - **copy** = another symlink, **move** = relink, **delete** = unlink. The last
-  label falling sends the message to `trash`; deleting from `trash` removes the
-  canonical bytes. Read-state is shared: one `.store/<id>/.read` seen through
-  every label.
+  label falling sends the message to `trash`; deleting from `trash` (its last
+  label) **orphans** the canon — the bytes are *kept*, never rm'd, so the delete
+  is undoable and recoverable; a future `:MailGC` frees orphans. Read-state is
+  shared: one `.store/<id>/.read` seen through every label.
 - `.store` and `.tmp_*`/`.linktmp_*` are dot-prefixed, so the index/mailbox
   readers (which skip `^\.`) never list them as messages.
 - Reads flow through symlinks transparently — `glob`/`isdirectory`/`readfile`
   all follow the link, so the reading code is unchanged.
 
-**Legacy real dirs.** A pre-content-store mailbox holds real `<mailbox>/<id>/`
-directories (no `.store`, no symlinks). Everything still works: reads are
-identical, and move/delete/copy detect a real dir (`getftype() != 'link'`) and
-fall back to physical rename/rf, or migrate it into the store on touch. Run
-`:MailMigrate` (or `mail_store.py migrate-store <root>`) to convert a whole
-store — deduping multi-copy mail into one canon, resumable and non-destructive.
+**The content-store layout is mandatory — there is no migrator.** The plugin
+**requires** `.store/<id>` canon + `<mailbox>/<id>` symlinks. A pre-content-store
+mailbox (real `<mailbox>/<id>/` dirs) still *renders* (reads follow real dirs or
+symlinks alike), but move/delete/copy assume symlink labels and there is **no
+in-plugin converter** — the one-off `migrate_store`/`:MailMigrate` was removed
+once the only store was migrated (git history has it if ever needed again). To
+onboard old mail now, re-ingest the raw messages through the backend
+(`mail_store.py ingest-stdin <mailbox>` per `raw.eml`), which writes `.store` +
+symlink natively. (`mail_store.py migrate <mbox> <mailbox>` still exists — but
+that's *mbox import*, a different thing from real-dir migration.)
 
 ## Architecture
 
@@ -46,12 +51,12 @@ All MIME work is in the `scripts/mailstore/` package (Python; entry point
 never parses MIME itself.
 
 ```
-plugin/mail.vim           :Mail (-> launcher / a mailbox) + :MailMigrate + g:mail_* setup
+plugin/mail.vim           :Mail (-> launcher / a mailbox) + g:mail_* setup
 autoload/mail/mailboxlist.vim read-only mailbox launcher (:Mail list, <CR>/- navigation)
 autoload/mail/mailbox.vim mailbox path resolution, completion, prompting
 autoload/mail/util.vim    shared helpers (py_cmd)
 autoload/mail/index.vim   index buffer: render, refresh/merge, line<->entry, cross-buffer :w helpers
-autoload/mail/actions.vim staged actions: marks, read/unread, delete + paste-link (:w), migrate
+autoload/mail/actions.vim staged actions: marks, read/unread, delete + paste-link (:w)
 autoload/mail/link.vim    link map L {id -> mailboxes}: readdir-built refcount source
 autoload/mail/thread.vim  cross-mailbox message-id index
 autoload/mail/view.vim    reading: preview, full open, html/mime view, search
@@ -65,7 +70,7 @@ ftplugin/mail-compose.vim :w sends
 syntax/mail-index.vim     conceals the hidden per-line message id
 scripts/mail_store.py     Python backend entry point (thin shim)
 scripts/mailstore/        backend package: htmltext/ingest/quote/images/send/cli
-                          ingest.ingest_one writes .store + symlink; migrate_store converts a flat store
+                          ingest.ingest_one writes .store + symlink; migrate_mbox imports an .mbox
 mail-setup.md             full backend setup doc (Postfix relay, fetchmail, store)
 setup.sh                  one-off: prints vimrc + fetchmailrc config for this clone
 Makefile                  `make test` (local) / `make test-linux` (Docker)
@@ -73,15 +78,15 @@ tests/run.sh              test runner: auto-discovers tests/test_*.{py,vim}
 tests/Dockerfile          Debian image to run the suite under Linux
 tests/fixtures/mail/      .eml corpus (plain/html/multipart/attachment/thread-*) — real messages
 tests/testlib/autoload/testmail.vim  shared generator: build a store from .eml via the real engine
-tests/_fixtures.py        Python fixtures: eml()/build_store()/legacy() (also via the real engine)
+tests/_fixtures.py        Python fixtures: eml()/build_store() (also via the real engine)
 tests/test_reply.py       reply/threading suite (Python)
 tests/test_store.py       content store: ingest -> .store + symlink, dedup, shared .read
-tests/test_migrate.py     migrate_store: flat store -> .store + symlinks, dedup, resumable
-tests/test_store_ops.vim  link-safe delete: unlink, refcount, trash, permanent
+tests/test_store_ops.vim  link-safe delete: unlink, refcount, trash, orphan-not-destroy
 tests/test_link.vim       link map L: labels + count_others reflect disk
 tests/test_paste.vim      native dd+p = move / yy+p = copy across mailbox buffers
 tests/test_write_all.vim  one :w commits every modified index buffer
 tests/test_fetch_merge.vim fetch/nav merges new mail into a modified buffer, edits kept
+tests/test_undo.vim       undo survives :w + navigation (merge/resync, no undo clear)
 tests/test_launcher.vim   :Mail launcher: read-only list, <CR> enter, - return
 ```
 
@@ -103,13 +108,10 @@ pass/fail via exit code.
 **Fixtures come from the real engine.** Store fixtures are built from real `.eml`
 files (`tests/fixtures/mail/*.eml`) run through the actual backend — never
 hand-shaped canons. Vim suites `set rtp+=<repo>/tests/testlib` and call
-`testmail#ingest`/`testmail#build`/`testmail#legacy` (which shell
-`mail_store.py ingest-stdin`); Python suites use `_fixtures.eml`/`build_store`/
-`legacy` (real `ingest.ingest_one`). Ids are derived from each message's
-Date+Message-ID, so tests **capture** the id from the build result rather than
-hardcoding it. `testmail#legacy` / `_fixtures.legacy` build a faithful
-pre-content-store real dir (ingest, then "de-symlink" the canon back into the
-mailbox) — the only way to get old-format mail, since no current verb emits it.
+`testmail#ingest`/`testmail#build` (which shell `mail_store.py ingest-stdin`);
+Python suites use `_fixtures.eml`/`build_store` (real `ingest.ingest_one`). Ids
+are derived from each message's Date+Message-ID, so tests **capture** the id from
+the build result rather than hardcoding it.
 `testmail#` also holds the shared `wipe_buffers`/`goto`/`ftype`/`has_entry`
 helpers (previously duplicated across every suite). Because Vim fixtures shell
 out to `python3`, these suites need it on `PATH` (the plugin requires it anyway).
@@ -135,6 +137,12 @@ cloned. `g:mail_python` defaults to `python3` on `PATH` (`exepath`), and
 from both. All three are overridable in vimrc. The only out-of-repo path is the
 `mda` line in `~/.fetchmailrc` — run `./setup.sh` (optionally `--patch`) to
 generate/update it for the current machine.
+
+The **mail-store root** has a single source of truth: `mail#mailbox#root()`
+returns `g:mail_root` if set, else the `s:DEFAULT_ROOT` fallback (`~/Mail`),
+always through `_normdir`. Every module resolves the root through it — never a
+bare `get(g:, 'mail_root', '~/Mail')` literal — so the default lives in exactly
+one place.
 
 ## Index buffer design
 
@@ -162,18 +170,61 @@ it):
 
 Per buffer, diffing its lines against its `b:mail_entries` baseline:
 - **Line missing** → drop this mailbox's label (`_delete_entry`): unlink the
-  symlink, then consult L — last label → link into `trash` (or, from `trash`,
-  `rm -rf` the canon, permanent); still labelled elsewhere → just unlink. **Never**
-  `delete(...,'rf')` a symlink (that rf's through into the store); flagless
-  `delete()` unlinks safely. Legacy real dirs fall back to physical rename/rf.
+  symlink, then consult L — last label → link into `trash`; last label *and*
+  already in `trash` → the canon is left **orphaned in `.store` (bytes kept)**,
+  never removed; still labelled elsewhere → just unlink. The plugin **never**
+  destroys canonical bytes on delete: no `rm`/`rf` of a canon, and never
+  `delete(...,'rf')` on a symlink (that rf's through into the store) — flagless
+  `delete()` unlinks safely.
 - **Line present but not in the baseline** → a line pasted from another mailbox
-  (native `dd`+`p` / `yy`+`p`): `_add_pasted_labels` links it here (migrating a
-  legacy source on touch). An id that resolves to nothing is ignored.
+  (native `dd`+`p` / `yy`+`p`): `_add_pasted_labels` links it here (`ln -s` into
+  the existing `.store` canon). An id that resolves to no canon is ignored.
 - **Read indicator differs** → `.read` written/deleted (via the symlink → the
   shared canonical `.read`).
 
-All staged until `:w`; `u` reverts before committing. `refresh()` ends with
-`setlocal nomodified`, so `&modified` means "staged, uncommitted changes exist."
+All staged until `:w`; `&modified` means "staged, uncommitted changes exist."
+`u` reverts staged edits before committing — **and undo survives `:w` itself**:
+after committing, `write()` re-baselines every touched buffer with
+`_resync_baseline` (re-read `mail_entries`, clear `&modified`) *without rewriting
+lines*, so the undo tree is untouched. `u` after a `:w` walks back through the
+committed edits; a following `:w` re-commits the reverted state (the undo /
+redo of a delete becomes an unlink / re-link on the next write). This is why
+`write()` must NOT call `refresh()` for the current buffer — `refresh()` clears
+undo (see below).
+
+### Formalization — delete lattice and refresh modes
+
+**Delete (drop-label).** For message `id` with on-disk label-set `L(id)` (mailbox
+dirs holding a symlink `<id> -> ../.store/<id>`; `mail#link#rebuild` counts them by
+`readdir` name), committing a delete from mailbox `m`:
+
+```
+unlink(m/id)
+if |L(id) \ {m}| > 0:        stop           # still labelled elsewhere
+elif m ≠ trash:              link(trash/id) # last label → recoverable in trash
+else (m = trash):            stop           # canon orphaned in .store, bytes kept
+```
+
+Invariant **B (bytes)**: the plugin never removes canonical bytes on delete —
+`|L(id)| = 0` with the canon still present is a legal *orphan* state, freed only
+by a future `:MailGC`. Invariant **T (trash)**: trash only ever holds a symlink
+(bytes stay in `.store`), so trashing/untrashing is pure link bookkeeping, never a
+byte move.
+
+**Refresh modes.** Three buffer-repaint paths, characterised by two properties —
+does it pick up newly-appeared disk mail, and does it preserve the undo tree:
+
+| path | trigger | new mail | undo |
+|---|---|---|---|
+| `refresh()` | first `open()`, `R` | full re-render | **discarded** (`undolevels=-1` clear) |
+| `_merge_new()` + `_resync_baseline()` | reused-clean `open()`, clean fetch | incremental insert | **preserved** |
+| `_merge_new()` | reused-modified `open()`, modified fetch | incremental insert | **preserved** |
+| `_resync_baseline()` (all bufs) | end of `write()` | none (already on disk) | **preserved** |
+
+Only `refresh()` (`R` = deliberate discard, and the empty first render) rebuilds
+lines destructively and clears undo. Every other path either inserts lines
+(`append`, undo-preserving) or only re-reads the baseline var — so undo survives
+navigation, fetch, and `:w`.
 
 **Move and copy are native gestures, not commands.** `dd`+`p` (cut here, paste
 into another mailbox buffer) = move; `yy`+`p` = copy; both commit on `:w` via the
@@ -184,23 +235,27 @@ launcher's `<CR>`/`-` navigation keeps them loaded. Trade-off (accepted): `u` in
 the source buffer after `dd`+`p` restores the source line but not the dest paste,
 so it turns the move into a *copy* (recoverable — `dd` it from one).
 
-**No staged-edit guard — navigation and fetch MERGE instead of discarding.** Any
-path that would otherwise rebuild a modified buffer from disk (wiping staged
-edits) instead inserts only the newly-appeared mail, leaving edited lines
-untouched (`mail#index#_merge_new()`):
-- `mail#index#open()` (the `:Mail` path): first open / return-to-*unmodified* →
-  full `refresh()`; return-to-**modified** → `_merge_new()`. Otherwise navigating
-  away and back would turn a `dd`+`p` move into an accidental copy (the source
-  never gets unlinked).
-- `mail#index#refresh_for()` (fetch completion): visible + unmodified → full
-  refresh; visible + **modified** → `_merge_new()`; hidden → nothing (the merge
-  runs on the next navigation). So fetch never prompts.
+**No staged-edit guard — navigation and fetch MERGE instead of discarding, and
+never clear undo.** Any path that would otherwise rebuild a buffer from disk
+(wiping staged edits *and* undo) instead inserts only the newly-appeared mail via
+`_merge_new()`, leaving edited lines untouched. Per the refresh-modes table
+above:
+- `mail#index#open()` (the `:Mail` path): first open → full `refresh()` (nothing
+  to preserve yet); return-to-**unmodified** → `_merge_new()` + `_resync_baseline()`
+  (pick up new mail, re-baseline, undo intact); return-to-**modified** →
+  `_merge_new()` only (keep the staged edits + undo). The clean path no longer
+  full-refreshes — otherwise navigating away and back would clear undo and turn a
+  `dd`+`p` move into an accidental copy (the source never gets unlinked).
+- `mail#index#refresh_for()` (fetch completion): visible → `_merge_new()`, then
+  `_resync_baseline()` only if it was unmodified; hidden → nothing (the merge runs
+  on the next navigation). So fetch never prompts and never clears undo.
 
-`_merge_new()` inserts, newest-first, only ids on disk that are in neither the
-baseline nor the current lines; a staged-*deleted* message stays in the baseline
-so it is not resurrected; it's a no-op when nothing is new. `R` still
-full-refreshes on purpose (an explicit discard). Regression-tested in
-`test_fetch_merge.vim`, `test_paste.vim`, `test_workflow.vim`, `test_write_all.vim`.
+`_merge_new()` inserts (via `append`, undo-preserving), newest-first, only ids on
+disk that are in neither the baseline nor the current lines; a staged-*deleted*
+message stays in the baseline so it is not resurrected; it's a no-op when nothing
+is new. `R` still full-refreshes on purpose (the one explicit discard — clears
+undo). Regression-tested in `test_undo.vim`, `test_fetch_merge.vim`,
+`test_paste.vim`, `test_workflow.vim`, `test_write_all.vim`.
 
 ## Key implementation details
 
@@ -231,17 +286,17 @@ that line directly. O(n) scan but only called once per message open.
 - `_store_root()` = `<mail_root>/.store`. `_make_link(id, dest)` shells out to
   `ln -s ../.store/<id> dest/<id>` (Vim has no native `symlink()`). `_unlink(dir)`
   = flagless `delete()` — unlinks a symlink, never rf's through it.
-- `getftype(entry.dir) ==# 'link'` distinguishes a store label from a legacy real
-  dir; the link ops branch on it (`getftype(target) !=# ''` = "already exists").
+- `getftype(target) !=# ''` = "a label already exists here" (skip the link).
+  Labels are always store symlinks (`getftype == 'link'`); the plugin does not
+  handle legacy real dirs at runtime — the store must already be content-store.
 - **Link map L** (`autoload/mail/link.vim`): `{id → {mailbox-name → 1}}`, rebuilt
   from `readdir()` (names only, no meta reads) at `:Mail`/`open()` and at the top
   of each `write()`. `count_others(id, mbox)` is the O(1) last-label refcount —
   it excludes `mbox`, so the just-done unlink in `_delete_entry` doesn't skew it.
-- `_ensure_canonical(dir)` = migrate-on-touch: a legacy real dir is moved into
-  `.store/<id>` and replaced by a symlink (used by the paste path so both
-  mailboxes share one canon). `_find_source(id, excl)` locates a legacy source for
-  a pasted id. There are no move/copy *functions* — move is `dd`+`p`, copy is
-  `yy`+`p`, both reconciled by `write()` (no `_guarded_targets`/`_resolve_dest`).
+- There are no move/copy *functions* — move is `dd`+`p`, copy is `yy`+`p`, both
+  reconciled by `write()`: `_add_pasted_labels` (the add, `ln -s` into the canon)
+  + the delete pass (the drop). No `_guarded_targets`/`_resolve_dest`, and no
+  migrate-on-touch (`_ensure_canonical`/`_find_source` were dropped with legacy).
 
 **Msgid index cache**
 `mail#thread#_build_msgid_index()` scans `meta` files across all mailboxes to build
@@ -374,9 +429,7 @@ macOS (built-in `osascript`); Linux uses `wl-paste`/`xclip`.
 | `R` | Refresh from disk (explicit — discards staged edits) |
 | `q` | Close buffer |
 
-"Targets" for `s`/`S`: all `*`-marked messages if any, else current line. Global
-command `:MailMigrate` converts an existing flat store to the content-store layout
-(shells out to `mail_store.py migrate-store`, then rebuilds L).
+"Targets" for `s`/`S`: all `*`-marked messages if any, else current line.
 
 ## Mailbox launcher
 
@@ -473,9 +526,10 @@ the `Cc` field was added to `_write_meta` will have it in meta.
   (*Future:* a batch `:M`/`:Move` could be added back later.)
 - `t` (toggle mark, operator-pending) and `T` (clear marks) overlap in mnemonic
   space — kept as-is for now.
-- Legacy real dirs and store symlinks coexist in a partially-migrated store; both
-  render and operate correctly (link ops branch on `getftype() == 'link'`), but
-  dedup/label-sharing only applies to store-backed messages until `:MailMigrate`.
+- The plugin requires the content-store layout — no migrator ships. A
+  pre-content-store store still *renders* (reads follow real dirs or symlinks
+  alike), but move/delete/copy assume symlink labels; to onboard old mail,
+  re-ingest it through `mail_store.py ingest-stdin` (writes `.store` + symlink).
 - The stored `body.html` keeps `cid:xxx` refs (pristine). Two consumers rewrite them
   on the fly, never the stored file: **viewing** (`x` → `mail_store.py viewhtml` →
   `_inline_cid_data_uris` rewrites `cid:`→`data:` URIs in a temp copy for the browser,

@@ -14,7 +14,7 @@ function! mail#thread#_build_msgid_index() abort
     return s:msgid_index
   endif
   let index = {}
-  let root = mail#mailbox#_normdir(get(g:, 'mail_root', '~/Mail'))
+  let root = mail#mailbox#root()
   let cur_dir = exists('b:mail_dir') ? b:mail_dir : ''
 
   " Current mailbox: already loaded into b:mail_entries — zero extra reads

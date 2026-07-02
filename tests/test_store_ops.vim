@@ -1,8 +1,8 @@
-" Headless suite for the content-store link operations (Stage 2):
-"   move   = relink  (add dest symlink, drop source symlink; bytes untouched)
-"   delete = unlink  (last label falls -> trash; from trash -> permanent rm of
-"            the canonical bytes; a still-labelled message just loses one label)
-" The critical invariant: a delete must NEVER rf through a symlink into .store.
+" Headless suite for content-store delete on :w:
+"   delete = unlink (last label falls -> trash; from trash -> canon orphaned but
+"            KEPT; a still-labelled message just loses one label).
+" The critical invariant: a delete must NEVER destroy bytes — no rm/rf of a canon
+" (orphans are freed later by a future :MailGC), and never rf through a symlink.
 "
 " Fixtures come from real .eml files ingested through the real backend, via the
 " shared generator in tests/testlib (testmail#*). No hand-shaped canons.
@@ -61,8 +61,10 @@ function! Test_delete_one_of_two_labels() abort
   call delete(root, 'rf')
 endfunction
 
-" --- delete from trash, last label -> PERMANENT: canonical bytes removed ---
-function! Test_permanent_delete_from_trash() abort
+" delete from trash (last label) -> the canon is ORPHANED, not destroyed. Bytes
+" are never rm'd by the plugin (a future :MailGC frees orphans), so undo stays
+" recoverable.
+function! Test_trash_delete_orphans_canon() abort
   let root = tempname() . '/Mail'
   let id = testmail#ingest(root, 'trash', 'plain')
   let g:mail_root = root
@@ -73,8 +75,8 @@ function! Test_permanent_delete_from_trash() abort
   silent write
 
   call assert_equal('', testmail#ftype(root . '/trash/' . id), 'trash label removed')
-  call assert_false(isdirectory(root . '/.store/' . id),
-        \ 'canonical bytes permanently removed (was the last label, in trash)')
+  call assert_true(isdirectory(root . '/.store/' . id),
+        \ 'canonical bytes KEPT (orphaned) — never permanently destroyed')
 
   call testmail#wipe_buffers()
   call delete(root, 'rf')
@@ -106,7 +108,7 @@ let v:errors = []
 let s:tests = [
       \ 'Test_delete_last_link_to_trash',
       \ 'Test_delete_one_of_two_labels',
-      \ 'Test_permanent_delete_from_trash',
+      \ 'Test_trash_delete_orphans_canon',
       \ 'Test_delete_from_trash_keeps_canon_if_linked_elsewhere',
       \ ]
 for s:t in s:tests

@@ -5,8 +5,7 @@
 "   dd + p into another mailbox  = move  (one :w commits both the add and the drop)
 " A pasted line whose id resolves to nothing (stray register paste) is ignored.
 "
-" Fixtures come from real .eml files via the shared generator (testmail#*); the
-" legacy-source case uses testmail#legacy (faithful pre-store real dir).
+" Fixtures come from real .eml files via the shared generator (testmail#*).
 "
 " Run:  vim -u NONE -N -es -S tests/test_paste.vim
 
@@ -83,38 +82,12 @@ function! Test_paste_garbage_ignored() abort
   call delete(root, 'rf')
 endfunction
 
-" --- pasting a LEGACY (un-migrated) message links it, migrating the source ---
-function! Test_paste_migrates_legacy_source() abort
-  let root = tempname() . '/Mail'
-  let id = testmail#legacy(root, 'inbox', 'plain')    " faithful pre-store real dir
-  call mkdir(root . '/archive', 'p')
-  let g:mail_root = root
-
-  call mail#index#open('inbox')
-  call testmail#goto(id) | normal! yy
-  call mail#index#open('archive')
-  normal! p
-  silent write
-
-  call assert_true(isdirectory(root . '/.store/' . id),
-        \ 'legacy source migrated into the store on paste')
-  call assert_equal('link', testmail#ftype(root . '/archive/' . id), 'archive linked to the canon')
-  call assert_equal('link', testmail#ftype(root . '/inbox/' . id),
-        \ 'source became a symlink (migrate-on-touch)')
-  call assert_true(filereadable(root . '/archive/' . id . '/raw.eml'),
-        \ 'archive link resolves to the migrated bytes')
-
-  call testmail#wipe_buffers()
-  call delete(root, 'rf')
-endfunction
-
 " --- runner ---
 let v:errors = []
 let s:tests = [
       \ 'Test_yy_paste_is_copy',
       \ 'Test_dd_paste_is_move',
       \ 'Test_paste_garbage_ignored',
-      \ 'Test_paste_migrates_legacy_source',
       \ ]
 for s:t in s:tests
   try

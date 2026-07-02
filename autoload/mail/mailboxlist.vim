@@ -13,7 +13,7 @@ let s:list_name  = 'mail://[mailboxes]'
 " Mailbox basenames under g:mail_root (dirs, skipping the hidden .store), with
 " inbox and sent floated to the top, the rest alphabetical.
 function! mail#mailboxlist#_mailboxes() abort
-  let root = mail#mailbox#_normdir(get(g:, 'mail_root', '~/Mail'))
+  let root = mail#mailbox#root()
   let names = []
   for path in glob(root . '/*', 0, 1)
     if isdirectory(path) && fnamemodify(path, ':t') !~# '^\.'

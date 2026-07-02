@@ -29,10 +29,8 @@ let g:mail_from = 'Your Name <you@gmail.com>'
 
 ## Use
 
-`:Mail` opens the inbox.
-
-`:Mail` shows a read-only list of your folders; `<CR>` enters one, `-` goes back.
-Inside a folder:
+`:Mail` shows a read-only list of your folders; `<CR>` enters one, `-` goes back
+(`:Mail <folder>` opens one directly). Inside a folder:
 
 | Key | Does |
 |---|---|
@@ -47,18 +45,16 @@ Inside a folder:
 | `s` / `S` | Mark read / unread (staged) |
 | `-` / `q` | Up to the folder list / close |
 
-Deletes, read-marks, and moves are **staged** — nothing hits disk until `:w`. A
-message carries folder-labels; deleting drops one, and the last one falling sends
-it to `trash/`. Move is `dd` here + `p` in another folder's buffer (`yy`+`p` to
+Deletes, read-marks, and moves are **staged** — nothing hits disk until `:w`, and
+`u` reverts them (even after `:w`). A message carries folder-labels; deleting
+drops one, and the last one falling sends it to `trash/`. Even deleting from trash
+only orphans the bytes in the store — nothing is destroyed, so it stays
+recoverable. Move is `dd` here + `p` in another folder's buffer (`yy`+`p` to
 copy) — one `:w` commits it. There's no move/copy *command*; the folder list (`-`)
 makes opening the destination to paste into one keystroke.
 
 Compose buffers (`r`/`f`/`<leader>c`) send on `:w`. `:Attach`/`<leader>A` attach a
 file, `<leader>a` a clipboard file, `<leader>p` a clipboard image inline.
-
-**Upgrading an old store:** run `:MailMigrate` once (or `mail_store.py
-migrate-store /path/to/Mail`) — converts to the shared-storage layout, safe and
-resumable, dedupes cross-folder copies. Old mail keeps working until you do.
 
 ## Caveats
 
@@ -76,6 +72,6 @@ resumable, dedupes cross-folder copies. Old mail keeps working until you do.
 - Vim-native operator keymaps (unify `t`/`s`/`S`/`dd`).
 - Optional batch `:M`/`:Move` command (dropped for now; move is `dd`+`p`).
 - CI clipboard (xclip) testing.
-- undo after saving — currently after `:w` undo history will be lost.
+- `:MailGC` to sweep orphaned canons from `.store` (delete keeps bytes so it stays undoable).
 
 Deeper: **`mail-setup.md`**.

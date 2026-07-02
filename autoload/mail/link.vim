@@ -12,7 +12,7 @@ let s:map = {}
 " content store) for its entry names. Cheap: readdir(), no stat/meta reads.
 function! mail#link#rebuild() abort
   let s:map = {}
-  let root = mail#mailbox#_normdir(get(g:, 'mail_root', '~/Mail'))
+  let root = mail#mailbox#root()
   for mbox in glob(root . '/*', 0, 1)
     if !isdirectory(mbox) | continue | endif
     let name = fnamemodify(mbox, ':t')

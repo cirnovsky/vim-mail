@@ -1,6 +1,11 @@
 " Mailbox path resolution, completion, and prompting.
 " Part of vim-mail; the frontend never parses MIME (that's mail_store.py).
 
+" Fallback mail store when the user hasn't set g:mail_root. Single source of
+" truth — every module resolves the root through mail#mailbox#root(), never a
+" bare literal.
+let s:DEFAULT_ROOT = '~/Mail'
+
 function! mail#mailbox#_normdir(dir) abort
   let dir = fnamemodify(expand(a:dir), ':p')
   if dir =~# '/$'
@@ -9,16 +14,21 @@ function! mail#mailbox#_normdir(dir) abort
   return dir
 endfunction
 
+" The resolved, normalised mail-store root: g:mail_root if set, else the default.
+function! mail#mailbox#root() abort
+  return mail#mailbox#_normdir(get(g:, 'mail_root', s:DEFAULT_ROOT))
+endfunction
+
 " Resolve a user-supplied mailbox string to a full path.
 " Bare names (no leading / or ~) are joined under g:mail_root.
 function! mail#mailbox#_resolve_mailbox(name) abort
-  let root = mail#mailbox#_normdir(get(g:, 'mail_root', '~/Mail'))
+  let root = mail#mailbox#root()
   let raw  = a:name =~# '^[/~]' ? a:name : root . '/' . a:name
   return mail#mailbox#_normdir(raw)
 endfunction
 
 function! mail#mailbox#_complete_mailbox(arglead, cmdline, cursorpos) abort
-  let root = mail#mailbox#_normdir(get(g:, 'mail_root', '~/Mail'))
+  let root = mail#mailbox#root()
   let names = map(filter(glob(root . '/*', 0, 1), 'isdirectory(v:val)'),
         \ 'fnamemodify(v:val, ":t")')
   return filter(names, 'v:val =~# "^" . a:arglead')
