@@ -4,6 +4,7 @@ import email
 import html as html_module
 from email import policy
 from email.message import EmailMessage
+from email.utils import make_msgid
 from pathlib import Path
 from typing import Optional
 
@@ -92,6 +93,11 @@ def send_mail(
                 inline_imgs[num.strip()] = path.strip()
         else:
             msg[key] = val
+
+    # Generated here (not left to Postfix) so the locally-ingested sent copy
+    # carries the same Message-ID that goes out on the wire — otherwise a
+    # reply's In-Reply-To has nothing in the local store to thread against.
+    msg["Message-ID"] = make_msgid()
 
     # Inline forward: the buffer holds the user's note + a forwarded-header block;
     # the original body is appended here (unquoted, like Gmail) rather than living
