@@ -205,59 +205,6 @@ def ingest_one(raw: bytes, mailbox_dir: Path) -> Optional[Path]:
     return link
 
 
-def _rm_tree(path: Path) -> None:
-    for p in sorted(path.rglob("*"), reverse=True):
-        p.unlink() if p.is_file() or p.is_symlink() else p.rmdir()
-    path.rmdir()
-
-
-def migrate_store(root: Path) -> dict:
-    """Convert a flat store (<mailbox>/<id>/ real dirs) into the content-store
-    layout: canonical bytes in <root>/.store/<id>/ and <mailbox>/<id> symlinks.
-
-    Per message dir, in order: move it into .store/<id> (or, if a canon with that
-    id already exists — the same message filed in another mailbox — drop this
-    duplicate and union its read-state), then replace the mailbox entry with a
-    relative symlink. Already-symlinked entries are skipped, so re-running after
-    an interruption resumes cleanly. Non-dir / dotfile mailbox entries are left
-    untouched. Returns {migrated, deduped, skipped}."""
-    root = Path(root)
-    store = root / ".store"
-    counts = {"migrated": 0, "deduped": 0, "skipped": 0}
-    if not root.is_dir():
-        return counts
-
-    for mbox in sorted(root.iterdir()):
-        if not mbox.is_dir() or mbox.name == ".store":
-            continue
-        # Materialise the listing first — we mutate the dir (add symlinks) below.
-        for entry in sorted(mbox.iterdir()):
-            if entry.name.startswith("."):
-                continue
-            if entry.is_symlink():
-                counts["skipped"] += 1
-                continue
-            if not entry.is_dir():
-                continue
-
-            mid = entry.name
-            canon = store / mid
-            if canon.exists():
-                # Duplicate legacy copy of an already-migrated message: fold it
-                # into the existing canon, unioning read-state (a read copy wins).
-                if (entry / ".read").exists() and not (canon / ".read").exists():
-                    (canon / ".read").write_text("")
-                _rm_tree(entry)
-                counts["deduped"] += 1
-            else:
-                store.mkdir(parents=True, exist_ok=True)
-                entry.rename(canon)
-                counts["migrated"] += 1
-            _link_mailbox(canon, mbox / mid)
-
-    return counts
-
-
 def migrate_mbox(mbox_path: Path, mailbox_dir: Path) -> None:
     mailbox_dir.mkdir(parents=True, exist_ok=True)
     box = mailbox.mbox(str(mbox_path))

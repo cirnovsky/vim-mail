@@ -51,12 +51,12 @@ All MIME work is in the `scripts/mailstore/` package (Python; entry point
 never parses MIME itself.
 
 ```
-plugin/mail.vim           :Mail (-> launcher / a mailbox) + :MailMigrate + g:mail_* setup
+plugin/mail.vim           :Mail (-> launcher / a mailbox) + g:mail_* setup
 autoload/mail/mailboxlist.vim read-only mailbox launcher (:Mail list, <CR>/- navigation)
 autoload/mail/mailbox.vim mailbox path resolution, completion, prompting
 autoload/mail/util.vim    shared helpers (py_cmd)
 autoload/mail/index.vim   index buffer: render, refresh/merge, line<->entry, cross-buffer :w helpers
-autoload/mail/actions.vim staged actions: marks, read/unread, delete + paste-link (:w), migrate
+autoload/mail/actions.vim staged actions: marks, read/unread, delete + paste-link (:w)
 autoload/mail/link.vim    link map L {id -> mailboxes}: readdir-built refcount source
 autoload/mail/thread.vim  cross-mailbox message-id index
 autoload/mail/view.vim    reading: preview, full open, html/mime view, search
@@ -70,7 +70,7 @@ ftplugin/mail-compose.vim :w sends
 syntax/mail-index.vim     conceals the hidden per-line message id
 scripts/mail_store.py     Python backend entry point (thin shim)
 scripts/mailstore/        backend package: htmltext/ingest/quote/images/send/cli
-                          ingest.ingest_one writes .store + symlink; migrate_store converts a flat store
+                          ingest.ingest_one writes .store + symlink; migrate_mbox imports an .mbox
 mail-setup.md             full backend setup doc (Postfix relay, fetchmail, store)
 setup.sh                  one-off: prints vimrc + fetchmailrc config for this clone
 Makefile                  `make test` (local) / `make test-linux` (Docker)
@@ -429,9 +429,7 @@ macOS (built-in `osascript`); Linux uses `wl-paste`/`xclip`.
 | `R` | Refresh from disk (explicit — discards staged edits) |
 | `q` | Close buffer |
 
-"Targets" for `s`/`S`: all `*`-marked messages if any, else current line. Global
-command `:MailMigrate` converts an existing flat store to the content-store layout
-(shells out to `mail_store.py migrate-store`, then rebuilds L).
+"Targets" for `s`/`S`: all `*`-marked messages if any, else current line.
 
 ## Mailbox launcher
 

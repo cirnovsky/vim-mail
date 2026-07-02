@@ -165,33 +165,6 @@ endfunction
 " pass (the drop). There is no :M/:Move/:Copy command; `-` opens the launcher so
 " opening the destination to paste into is one keystroke.
 
-" :MailMigrate — convert the existing flat store under g:mail_root into the
-" content-store layout (.store/<id> + symlinks). Shells out to the Python
-" migrate_store (safe + resumable), then rebuilds L and repaints the index.
-function! mail#actions#migrate_store() abort
-  let root = mail#mailbox#_normdir(get(g:, 'mail_root', '~/Mail'))
-  if !isdirectory(root)
-    echohl ErrorMsg | echom 'mail: no such mail root: ' . root | echohl None
-    return
-  endif
-  if confirm("Migrate " . root . " to the content-store layout?\n"
-        \ . "(.store/<id> + symlinks; non-destructive & resumable)",
-        \ "&Yes\n&No", 2) != 1
-    echo 'Migration cancelled'
-    return
-  endif
-  echo 'Migrating ' . root . ' ...'
-  let out = system(g:mail_python . ' ' . shellescape(g:mail_store_py)
-        \ . ' migrate-store ' . shellescape(root))
-  if v:shell_error
-    echohl ErrorMsg | echom 'mail: migration failed: ' . trim(out) | echohl None
-    return
-  endif
-  call mail#link#rebuild()
-  if exists('b:mail_dir') | call mail#index#refresh() | endif
-  echom 'Migration done — ' . trim(out)
-endfunction
-
 function! mail#actions#read(read) abort
   let targets = {}
   for idx in mail#index#_target_indexes() | let targets[idx] = 1 | endfor

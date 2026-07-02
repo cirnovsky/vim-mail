@@ -47,17 +47,3 @@ def build_store(root, spec: list) -> dict:
             (root / ".store" / mid / ".read").write_text("")
         ids[item["name"]] = mid
     return ids
-
-
-def legacy(root, mailbox, name) -> str:
-    """Build a FAITHFUL pre-content-store real dir: ingest via the real backend
-    (full production contents), then de-symlink — drop the mailbox symlink and
-    move the canon back into the mailbox as a real directory. Returns the id."""
-    root = Path(root)
-    link = ingest.ingest_one(eml(name), root / mailbox)
-    assert link is not None
-    mid = link.name
-    canon = root / ".store" / mid
-    link.unlink()                       # remove the symlink (not its target)
-    canon.rename(root / mailbox / mid)  # canon dir -> real dir in the mailbox
-    return mid
