@@ -480,3 +480,179 @@ endfunction
 Also note `feedkeys()` does not reliably drive operator-pending mappings or
 `input()` in `-es` batch mode — call the underlying functions directly
 (e.g. `mail#actions#ToggleMarkOperator('line')`) instead.
+
+## 6. Multi-account & OAuth (getmail + msmtp)
+
+Sections 1–2 (Postfix + fetchmail, Gmail app-password) are the single-account
+stack. For **multiple accounts** and providers that **require OAuth2** (Outlook /
+Microsoft 365 killed basic auth; Gmail supports it; QQ uses an authorization
+code), the transport moves to tools built for multi-account + token auth:
+
+- **outbound → `msmtp`** — a `sendmail`-compatible SMTP client, one `account`
+  block per identity, OAuth via `passwordeval`. Replaces the Postfix relay.
+- **inbound → `getmail`** — a fetchmail-shaped retriever (pull IMAP → pipe each
+  message to an MDA) with clean XOAUTH2. Keeps the `ingest-stdin` model. (Do
+  **not** use `mbsync` here: it's a two-way Maildir *sync* tool that wants to own
+  local mail state, which fights vim-mail's own content store.)
+
+The plugin core never authenticates — it delegates. Each account's `send`
+command (in `g:mail_accounts`) is handed to `mail_store.py send` via
+`$MAIL_SENDMAIL`; getmail runs independently on a timer.
+
+### The credential helper (`scripts/oauth_token.py`)
+
+Both tools fetch the secret from a command. `oauth_token.py <account>` prints:
+- `password` accounts → the app-password / QQ auth-code verbatim;
+- `oauth` accounts → a fresh access token (refresh-token exchange).
+
+**It stores no secrets.** `~/.config/vim-mail/accounts.json` holds only
+non-secret metadata plus a `secret_command` per account whose stdout is the
+secret. Wire it to your keychain / `pass` / gpg so nothing sensitive is in
+plaintext:
+
+```json
+{
+  "gmail": {
+    "auth": "password",
+    "secret_command": ["pass", "show", "mail/gmail-apppw"]
+  },
+  "outlook": {
+    "auth": "oauth",
+    "token_uri": "https://login.microsoftonline.com/common/oauth2/v2.0/token",
+    "client_id": "…azure-app-id…",
+    "client_secret": "",
+    "scope": "offline_access https://outlook.office.com/IMAP.AccessAsUser.All https://outlook.office.com/SMTP.Send",
+    "secret_command": ["pass", "show", "mail/outlook-refresh"]
+  },
+  "qq": {
+    "auth": "password",
+    "secret_command": ["pass", "show", "mail/qq-authcode"]
+  }
+}
+```
+
+`accounts.json` and the secret store must be **gitignored / not backed up in the
+clear**; keep FDE on and request minimal scopes.
+
+### Which auth per provider (what the installer picks)
+
+- **Gmail → app password (default).** Its full-mail scope is a Google *restricted*
+  scope (annual security audit to ship an OAuth app; unverified/"testing" apps
+  expire refresh tokens after 7 days), so OAuth isn't worth it for a personal
+  account. `setup_lazyass.sh` asks for an app password
+  (https://myaccount.google.com/apppasswords, needs 2-Step Verification) — one
+  code, pasted, stored in your keychain. (OAuth still works if you want it: set
+  the account to the `oauth` shape shown above and register a Desktop-app client.)
+- **Outlook/M365 → OAuth (mandatory).** Microsoft killed basic auth for mail
+  protocols; there is no app-password path. Requires an Azure/Entra app
+  registration — see "Shipping Outlook" below.
+- **QQ → authorization code.** Enable IMAP/SMTP in QQ Mail settings, copy the code.
+
+For OAuth accounts, `./setup_lazyass.sh` runs the consent for you:
+`oauth_token.py login <account>` (auth-code + PKCE loopback — opens the browser,
+captures the redirect on `http://127.0.0.1`, exchanges for a refresh token) and
+stores the token in your keychain. By hand: `python3 scripts/oauth_token.py login
+<account>` prints the refresh token.
+
+### Shipping Outlook (one-click, embedded client id)
+
+Because Microsoft's mail scopes are **not** restricted (no security audit) and a
+**multi-tenant public client** lets anyone consent, you can make Outlook
+one-click for everyone using your clone — no per-user console step. Register once:
+
+1. https://entra.microsoft.com → **App registrations → New registration**.
+2. Supported account types: **accounts in any org directory and personal
+   Microsoft accounts** (multi-tenant + personal).
+3. **Authentication → Add a platform → Mobile and desktop** → redirect URI
+   `http://127.0.0.1` (and `http://localhost`). Enable "public client" (no secret).
+4. **API permissions** → add delegated `IMAP.AccessAsUser.All`, `SMTP.Send`,
+   `offline_access`.
+5. Copy the **Application (client) ID** and paste it into `OUTLOOK_CLIENT_ID` at
+   the top of `setup_lazyass.sh`.
+
+With that set, the installer skips the client-id prompt for Outlook — the user
+just signs in. Leave it empty and the installer prompts each user for their own
+client id instead. (Gmail can't be shipped this way — restricted scope.)
+
+### `~/.msmtprc` (outbound)
+
+```
+defaults
+tls on
+logfile ~/.msmtp.log
+
+account gmail
+host smtp.gmail.com
+port 587
+from me@gmail.com
+user me@gmail.com
+auth on
+passwordeval "python3 /path/to/vim-mail/scripts/oauth_token.py gmail"
+
+account outlook
+host smtp-mail.outlook.com
+port 587
+from me@outlook.com
+user me@outlook.com
+auth xoauth2
+passwordeval "python3 /path/to/vim-mail/scripts/oauth_token.py outlook"
+
+account qq
+host smtp.qq.com
+port 465
+tls_starttls off
+from 12345@qq.com
+user 12345@qq.com
+auth on
+passwordeval "python3 /path/to/vim-mail/scripts/oauth_token.py qq"
+
+account default : gmail
+```
+
+### `~/.getmail/gmail.rc` (inbound; one rc per account)
+
+```ini
+[retriever]
+type = SimpleIMAPSSLRetriever
+server = imap.gmail.com
+port = 993
+username = me@gmail.com
+password_command = ("python3", "/path/to/vim-mail/scripts/oauth_token.py", "gmail")
+
+[destination]
+type = MDA_external
+path = /path/to/python3
+arguments = ("/path/to/vim-mail/scripts/mail_store.py", "ingest-stdin", "/path/to/Mail/gmail/inbox")
+
+[options]
+read_all = false
+delivered_to = false
+received = false
+```
+
+The **MDA line preserves the ingest model** — each new message is piped straight
+into `mail_store.py ingest-stdin <account-inbox>`, exactly as fetchmail did.
+`outlook.rc` / `qq.rc` mirror this with their own server + account. Schedule
+`getmail --rcfile <acct>.rc` on a timer (cron / launchd / systemd), or run
+`getmail --idle INBOX` for push on one folder.
+
+> ⚠️ getmail6's exact XOAUTH2 knob varies by version (≥6.18 supports it; some
+> builds need an explicit mechanism setting or the bundled
+> `getmail-gmail-xoauth-tokens` helper rather than a plain `password_command`).
+> This is the one spot to verify against your installed getmail; the msmtp side
+> and the token helper are stable.
+
+### vimrc
+
+```vim
+let g:mail_accounts = {
+  \ 'gmail':   {'root': '~/Mail/gmail',   'from': 'Me <me@gmail.com>',   'send': 'msmtp -a gmail -t'},
+  \ 'outlook': {'root': '~/Mail/outlook', 'from': 'Me <me@outlook.com>', 'send': 'msmtp -a outlook -t'},
+  \ 'qq':      {'root': '~/Mail/qq',      'from': 'Me <12345@qq.com>',   'send': 'msmtp -a qq -t'},
+  \ }
+let g:mail_account = 'gmail'
+```
+
+`:Mail` then shows the account fold tree; `:MailAccount <name>` switches. Each
+account is an independent store root — move/delete/`:w` stay within one account
+(a cross-account unified "ALL" view is a future feature).

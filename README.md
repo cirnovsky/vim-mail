@@ -10,14 +10,18 @@ Three one-time parts: **outbound** (relay through Gmail SMTP), **inbound**
 
 ## Setup
 
-**Lazy:** `./setup_lazyass.sh` — prompts for your Gmail address, app password, and
-store path; configures the Postfix→Gmail relay, `~/.fetchmailrc`, and the store;
-prints the vimrc lines. Read it first — it edits `/etc` (macOS-tested; Linux
-untested). Manual steps + full reference: **`mail-setup.md`**.
+**Lazy:** `./setup_lazyass.sh` (run once per account) — give it an email; it
+detects the provider, runs the OAuth browser consent for you (Gmail, Outlook) or
+asks for an app password (QQ), stores the secret in your keychain, wires up
+`msmtp` (send) + `getmail` (fetch) + `~/.config/vim-mail/accounts.json`, creates
+the store, and prints the `g:mail_accounts` line. User-level only — no `/etc`, no
+Postfix. Read it first (macOS-tested; Linux untested). Full reference:
+**`mail-setup.md` §6**.
 
 **Needs:** macOS or Linux · Vim 8+ (`+job +timers +lambda +conceal`) · Python
-3.9+ · `fetchmail` · a Gmail account with 2-Step Verification and an
-[app password](https://myaccount.google.com/apppasswords).
+3.9+ · `msmtp` + `getmail` (installed by the script) · for OAuth providers, a
+one-time OAuth client id from the provider console (the script links you); for
+app-password providers, an app password.
 
 **vimrc:**
 
@@ -27,10 +31,16 @@ let g:mail_root = '/path/to/Mail'
 let g:mail_from = 'Your Name <you@gmail.com>'
 ```
 
+**Multiple accounts** (optional, incl. OAuth providers like Outlook): set
+`g:mail_accounts` instead — `:Mail` becomes a per-account fold tree,
+`:MailAccount <name>` switches. Transport moves to getmail + msmtp with an OAuth
+token helper; full setup in **`mail-setup.md` §6**.
+
 ## Use
 
-`:Mail` shows a read-only list of your folders; `<CR>` enters one, `-` goes back
-(`:Mail <folder>` opens one directly). Inside a folder:
+`:Mail` shows a read-only list of your folders (a per-account fold tree in
+multi-account mode); `<CR>` enters one, `-` goes back (`:Mail <folder>` opens one
+directly). Inside a folder:
 
 | Key | Does |
 |---|---|

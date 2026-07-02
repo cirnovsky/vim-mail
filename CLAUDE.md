@@ -51,8 +51,9 @@ All MIME work is in the `scripts/mailstore/` package (Python; entry point
 never parses MIME itself.
 
 ```
-plugin/mail.vim           :Mail (-> launcher / a mailbox) + g:mail_* setup
-autoload/mail/mailboxlist.vim read-only mailbox launcher (:Mail list, <CR>/- navigation)
+plugin/mail.vim           :Mail (-> launcher / a mailbox) + :MailAccount + g:mail_* setup
+autoload/mail/mailboxlist.vim read-only launcher: flat list, or per-account fold tree (multi-account)
+autoload/mail/account.vim multi-account model (opt-in g:mail_accounts): active account, root/from/send routing
 autoload/mail/mailbox.vim mailbox path resolution, completion, prompting
 autoload/mail/util.vim    shared helpers (py_cmd)
 autoload/mail/index.vim   index buffer: render, refresh/merge, line<->entry, cross-buffer :w helpers
@@ -71,7 +72,9 @@ syntax/mail-index.vim     conceals the hidden per-line message id
 scripts/mail_store.py     Python backend entry point (thin shim)
 scripts/mailstore/        backend package: htmltext/ingest/quote/images/send/cli
                           ingest.ingest_one writes .store + symlink; migrate_mbox imports an .mbox
-mail-setup.md             full backend setup doc (Postfix relay, fetchmail, store)
+                          send reads $MAIL_SENDMAIL (transport cmd) — default 'sendmail -t'
+scripts/oauth_token.py    credential helper for msmtp/getmail: refresh->access token, or app-pw passthrough
+mail-setup.md             full backend setup doc (relay/fetch/store; getmail+msmtp+OAuth for multi-account)
 setup.sh                  one-off: prints vimrc + fetchmailrc config for this clone
 Makefile                  `make test` (local) / `make test-linux` (Docker)
 tests/run.sh              test runner: auto-discovers tests/test_*.{py,vim}
@@ -82,6 +85,8 @@ tests/_fixtures.py        Python fixtures: eml()/build_store() (also via the rea
 tests/test_reply.py       reply/threading suite (Python)
 tests/test_store.py       content store: ingest -> .store + symlink, dedup, shared .read
 tests/test_store_ops.vim  link-safe delete: unlink, refcount, trash, orphan-not-destroy
+tests/test_oauth.py       oauth_token.py: password passthrough + refresh->access exchange
+tests/test_account.vim    multi-account: model, launcher fold tree, qualified buffers, per-account :w
 tests/test_link.vim       link map L: labels + count_others reflect disk
 tests/test_paste.vim      native dd+p = move / yy+p = copy across mailbox buffers
 tests/test_write_all.vim  one :w commits every modified index buffer
@@ -442,6 +447,68 @@ cursor (its own `mail://<name>` buffer); `-` from a mailbox returns to the list;
 a **launcher**, not single-buffer netrw: each mailbox keeps its own persistent
 buffer, so staged edits and `dd`+`p`/`yy`+`p` moves survive navigation. `:Mail`
 dispatches through `mail#mailboxlist#mail_cmd()` (empty → list, else `index#open`).
+
+In **multi-account mode** (below) the launcher renders a **fold tree** instead of
+a flat list: each account name is line 1 of a **manual fold** (built + closed in
+`render()`), its mailboxes indented inside. A closed fold shows just the account
+name (a dropdown); `zo`/`zc`/`za` — or `<CR>` on the header — expand/collapse it
+(`<CR>` on the header runs `za`). `b:mail_launcher` is a list parallel to the
+lines (`{kind:'account'|'mailbox', account, mailbox}`) so `<CR>` resolves a line
+to an action without reparsing text; `<CR>` on a mailbox line switches account and
+opens it.
+
+## Multi-account (opt-in)
+
+Off by default. Define `g:mail_accounts` to enable it; leave it unset and
+everything is single-account exactly as before (single `g:mail_root`/`g:mail_from`).
+
+```vim
+let g:mail_accounts = {
+  \ 'gmail':   {'root': '~/Mail/gmail',   'from': 'Me <me@gmail.com>', 'send': 'msmtp -a gmail -t'},
+  \ 'outlook': {'root': '~/Mail/outlook', 'from': 'Me <me@outlook.com>', 'send': 'msmtp -a outlook -t'},
+  \ }
+let g:mail_account = 'gmail'     " optional: active account at startup (else first, sorted)
+```
+
+**One store per account.** Each account has its **own root** — its own `.store`,
+symlink labels, link map L. `mail#account#apply(name)` makes an account active by
+repointing `g:mail_root` + `g:mail_from`; `mail#mailbox#root()` returns the active
+account's root (so every root reader follows automatically). `:MailAccount <name>`
+switches + reopens the launcher. Model lives in `autoload/mail/account.vim`;
+`mail#account#is_multi()` gates every multi-account branch, so single-account
+paths are untouched.
+
+**Everything stays within one account** (per-account first; cross-account "ALL"
+merge is a later feature). Three touchpoints enforce it:
+- **Buffer names are account-qualified** — `mail://<account>/<mailbox>` in multi
+  mode (vs `mail://<mailbox>` single), so two accounts' same-named mailboxes get
+  distinct buffers instead of colliding.
+- **`:w` is per-account.** `write()` derives the store root from the buffer being
+  written (`fnamemodify(mail_dir, ':h')`) and only reconciles other modified
+  buffers under that **same** root; L is rebuilt for that root
+  (`mail#link#rebuild(root)`), trash is that root's `trash`. A message's
+  ids/labels/read/trash are all per-`.store`, so committing across accounts in one
+  `:w` would be wrong. Single-account: root is the one root — unchanged.
+- **Send is routed per account.** Each account's optional `send` command (default
+  `sendmail -t`) is passed as `$MAIL_SENDMAIL` to `mail_store.py send`, which runs
+  it as the transport. So identity `gmail` sends via `msmtp -a gmail -t`, etc.
+
+**OAuth-friendly transport.** The plugin core never authenticates — it delegates
+to external tools. The recommended multi-provider stack is **getmail** (inbound,
+pull → pipe to `ingest-stdin`, keeps the forwarder model) + **msmtp** (outbound,
+`sendmail`-shaped, native multi-account), both taking an OAuth2 access token from
+`scripts/oauth_token.py`. That helper prints a credential per account:
+`password` accounts echo an app-password/authorization-code; `oauth` accounts
+exchange a stored **refresh token for a fresh access token**. **It stores no
+secrets** — each account names a `secret_command` (wire it to gpg/pass/keychain)
+whose stdout is the refresh token / app-password, so nothing sensitive sits in
+`accounts.json` plaintext. Outlook/M365 require OAuth (basic auth is dead); Gmail
+works with either; QQ uses an authorization code (password kind). `oauth_token.py
+login <account>` runs the one-time consent (auth-code + PKCE loopback) to mint the
+refresh token; `./setup_lazyass.sh` automates the whole per-account setup (detect
+provider → run login or ask a password → store secret in keychain → write
+accounts.json + `~/.msmtprc` + `~/.getmail/<acct>.rc`). Full setup — app
+registration, getmail/msmtp config — in `mail-setup.md` §6.
 
 ## Dependencies
 
