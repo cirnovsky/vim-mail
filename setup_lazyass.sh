@@ -1,29 +1,24 @@
 #!/bin/sh
-# vim-mail one-shot setup (macOS + Linux).
+# vim-mail one-shot setup (macOS + Linux) — any account+password mail provider.
 #
-# Prompts for your Gmail address, app password, and where to keep the mail store
-# (defaults to ~/Mail), then does everything else: installs deps, configures the
-# Postfix→Gmail relay in /etc (with backups, idempotent), writes ~/.fetchmailrc,
-# creates the store, and verifies the login. The only other thing it asks for is
-# your *sudo* password (needed for /etc).
+# Give it an email; it detects the provider (Gmail, Yahoo, iCloud, Fastmail,
+# Zoho, Yandex, GMX, QQ, 163/126, …), then installs deps, configures the
+# Postfix relay to that provider's SMTP in /etc (backups, idempotent), writes
+# ~/.fetchmailrc pointed at its IMAP, creates the store, and verifies the login.
+# You provide the email, an app password (or authorization code), and your sudo
+# password (for /etc). Unknown providers: it asks for the IMAP/SMTP hosts.
 #
-# ⚠  PRECAUTION — this is a convenience installer, NOT a magic button.
-#   It edits system files: it appends to /etc/postfix/main.cf, writes
-#   /etc/postfix/sasl_passwd, (re)starts Postfix, and writes ~/.fetchmailrc. It
-#   backs up everything it changes to *.vimmail.<timestamp>.bak, but it is
-#   best-effort and not bulletproof. READ IT before running, and treat it as an
-#   automated, runnable version of the manual install steps in README.md /
-#   mail-setup.md — if anything looks off for your machine, follow those by hand.
+# Works with any provider that still allows app-password / basic auth over
+# IMAP+SMTP. Providers that FORCE OAuth (Outlook.com / Microsoft 365, and Google
+# Workspace custom domains) are NOT handled here — use the 'multi-account-oauth'
+# branch (getmail + msmtp + OAuth) for those.
 #
-#   macOS is tested. The Linux path (apt/dnf/pacman package install, systemctl
-#   service start, CA-bundle probing) is written but UNTESTED — sanity-check each
-#   step if you rely on it, and keep the manual steps handy as a fallback.
-#
-# Requires: 2-Step Verification on the Google account + an app password
-#   https://myaccount.google.com/apppasswords
-#
-# After it finishes, add the printed snippet to your vimrc (the one manual step —
-# plugin managers vary, so it won't touch your vimrc).
+# ⚠  PRECAUTION — a convenience installer, NOT a magic button. It edits system
+#   files: appends to /etc/postfix/main.cf, writes /etc/postfix/sasl_passwd,
+#   (re)starts Postfix, writes ~/.fetchmailrc. It backs up what it changes to
+#   *.vimmail.<timestamp>.bak, but it's best-effort — READ IT, and treat it as an
+#   automated version of mail-setup.md. macOS is tested; the Linux path is
+#   written but UNTESTED.
 #
 # Usage:  ./setup_lazyass.sh
 
@@ -36,7 +31,7 @@ die()  { printf '\033[1;31mxx \033[0m %s\n' "$1" >&2; exit 1; }
 OS=$(uname -s)
 case $OS in
   Darwin|Linux) ;;
-  *) die "Unsupported OS '$OS'. macOS and Linux only — follow README.md manually." ;;
+  *) die "Unsupported OS '$OS'. macOS and Linux only — follow mail-setup.md manually." ;;
 esac
 
 # --- locate this repo (follow symlinks) ------------------------------------
@@ -48,24 +43,83 @@ done
 REPO=$(cd -P "$(dirname "$SELF")" && pwd)
 [ -f "$REPO/scripts/mail_store.py" ] || die "scripts/mail_store.py not found in this repo ($REPO)"
 
+# --- provider profiles ------------------------------------------------------
+# Basic-auth (app-password) providers. OAuth-only ones are rejected below.
+PROVIDER=""; SMTP_HOST=""; SMTP_PORT=""; IMAP_HOST=""; APPPW_HELP=""
+set_provider() {  # $1 = lowercased email domain
+  case $1 in
+    gmail.com|googlemail.com)
+      PROVIDER=gmail; SMTP_HOST=smtp.gmail.com; SMTP_PORT=587; IMAP_HOST=imap.gmail.com
+      APPPW_HELP="App password: https://myaccount.google.com/apppasswords (needs 2-Step Verification). Consumer @gmail.com only — Google Workspace/custom domains now force OAuth." ;;
+    yahoo.com|ymail.com|myyahoo.com|rocketmail.com)
+      PROVIDER=yahoo; SMTP_HOST=smtp.mail.yahoo.com; SMTP_PORT=465; IMAP_HOST=imap.mail.yahoo.com
+      APPPW_HELP="App password: Yahoo Account Security -> Generate app password (needs 2FA)." ;;
+    aol.com)
+      PROVIDER=aol; SMTP_HOST=smtp.aol.com; SMTP_PORT=465; IMAP_HOST=imap.aol.com
+      APPPW_HELP="App password: AOL Account Security -> Generate app password (needs 2-Step Verification)." ;;
+    icloud.com|me.com|mac.com)
+      PROVIDER=icloud; SMTP_HOST=smtp.mail.me.com; SMTP_PORT=587; IMAP_HOST=imap.mail.me.com
+      APPPW_HELP="App-specific password: account.apple.com -> Sign-In and Security -> App-Specific Passwords (needs 2FA)." ;;
+    fastmail.com|fastmail.fm)
+      PROVIDER=fastmail; SMTP_HOST=smtp.fastmail.com; SMTP_PORT=587; IMAP_HOST=imap.fastmail.com
+      APPPW_HELP="App password: Fastmail Settings -> Privacy & Security -> App passwords (needs a paid plan for IMAP)." ;;
+    zoho.com)
+      PROVIDER=zoho; SMTP_HOST=smtp.zoho.com; SMTP_PORT=587; IMAP_HOST=imap.zoho.com
+      APPPW_HELP="App password: Zoho Account -> Security -> App Passwords (needs 2FA + IMAP enabled)." ;;
+    yandex.com|yandex.ru|ya.ru)
+      PROVIDER=yandex; SMTP_HOST=smtp.yandex.com; SMTP_PORT=465; IMAP_HOST=imap.yandex.com
+      APPPW_HELP="App password: Yandex ID -> App passwords -> Mail (and enable IMAP)." ;;
+    gmx.com|gmx.net|gmx.de)
+      PROVIDER=gmx; SMTP_HOST=mail.gmx.com; SMTP_PORT=587; IMAP_HOST=imap.gmx.com
+      APPPW_HELP="Enable POP3/IMAP in GMX Settings first, then use your account password." ;;
+    qq.com)
+      PROVIDER=qq; SMTP_HOST=smtp.qq.com; SMTP_PORT=465; IMAP_HOST=imap.qq.com
+      APPPW_HELP="Authorization code: enable IMAP/SMTP in QQ Mail settings, copy the code it gives you." ;;
+    163.com)
+      PROVIDER=163; SMTP_HOST=smtp.163.com; SMTP_PORT=465; IMAP_HOST=imap.163.com
+      APPPW_HELP="Authorization code: enable IMAP/SMTP in 163 Mail settings, copy the code." ;;
+    126.com)
+      PROVIDER=126; SMTP_HOST=smtp.126.com; SMTP_PORT=465; IMAP_HOST=imap.126.com
+      APPPW_HELP="Authorization code: enable IMAP/SMTP in 126 Mail settings, copy the code." ;;
+    outlook.com|hotmail.com|hotmail.co.uk|live.com|live.co.uk|msn.com|passport.com)
+      die "Outlook/Microsoft forces OAuth (basic auth is gone) — not supported by this single-account installer. Use the 'multi-account-oauth' branch (getmail + msmtp + OAuth)." ;;
+    *) return 1 ;;
+  esac
+}
+
+# When sourced with VIMMAIL_TEST=1, load only the helpers/profiles above and stop
+# here, so tests can exercise set_provider without the interactive install flow.
+# (Safe when executed: the guard is false, so `return` never runs at top level.)
+[ "${VIMMAIL_TEST:-}" = 1 ] && return 0
+
 # --- precaution / confirm ---------------------------------------------------
 warn "This will edit system files (/etc/postfix/main.cf + sasl_passwd), (re)start"
 warn "Postfix, and write ~/.fetchmailrc. Changes are backed up to *.vimmail.*.bak,"
-warn "but this is best-effort — it's an automated version of README.md's steps."
-[ "$OS" = "Linux" ] && warn "NOTE: the Linux path is UNTESTED. Verify each step or follow README.md by hand."
+warn "but this is best-effort — it's an automated version of mail-setup.md's steps."
+[ "$OS" = "Linux" ] && warn "NOTE: the Linux path is UNTESTED. Verify each step or follow mail-setup.md by hand."
 printf 'Proceed? [y/N]: '; read -r ANS
 case $ANS in [Yy]|[Yy][Ee][Ss]) ;; *) die "Aborted." ;; esac
 
-# --- prompts (the only inputs) ----------------------------------------------
-printf 'Gmail address: '; read -r EMAIL
+# --- prompts ----------------------------------------------------------------
+printf 'Email address: '; read -r EMAIL
 [ -n "$EMAIL" ] || die "no email given"
-printf 'Gmail app password (hidden): '
+DOMAIN=$(printf '%s' "$EMAIL" | sed 's/.*@//' | tr 'A-Z' 'a-z')
+if ! set_provider "$DOMAIN"; then
+  PROVIDER=$DOMAIN
+  say "Unknown provider '$DOMAIN' — enter its servers (must allow app-password / basic auth over IMAP+SMTP)."
+  printf 'IMAP host: '; read -r IMAP_HOST; [ -n "$IMAP_HOST" ] || die "no IMAP host"
+  printf 'SMTP host: '; read -r SMTP_HOST; [ -n "$SMTP_HOST" ] || die "no SMTP host"
+  printf 'SMTP submission port [587]: '; read -r SMTP_PORT; SMTP_PORT=${SMTP_PORT:-587}
+fi
+say "Provider: $PROVIDER  (SMTP $SMTP_HOST:$SMTP_PORT · IMAP $IMAP_HOST:993)"
+[ -n "$APPPW_HELP" ] && say "$APPPW_HELP"
+
+printf 'App password / code (hidden): '
 stty -echo 2>/dev/null; read -r APPPW; stty echo 2>/dev/null; printf '\n'
 [ -n "$APPPW" ] || die "no password given"
 DEFAULT_ROOT="$HOME/Mail"
 printf 'Mail store path [%s]: ' "$DEFAULT_ROOT"; read -r MAIL_ROOT
 MAIL_ROOT=${MAIL_ROOT:-$DEFAULT_ROOT}
-# Expand a leading ~ (read leaves it literal).
 case $MAIL_ROOT in "~") MAIL_ROOT=$HOME ;; "~/"*) MAIL_ROOT=$HOME/${MAIL_ROOT#"~/"} ;; esac
 USER_NAME=$(id -un)
 
@@ -76,17 +130,13 @@ sudo -v
 if [ "$OS" = "Darwin" ]; then
   command -v brew >/dev/null 2>&1 || die "Homebrew not found. Install from https://brew.sh then re-run."
   PKG=brew
-elif command -v apt-get >/dev/null 2>&1; then
-  PKG=apt
-elif command -v dnf >/dev/null 2>&1; then
-  PKG=dnf
-elif command -v pacman >/dev/null 2>&1; then
-  PKG=pacman
+elif command -v apt-get >/dev/null 2>&1; then PKG=apt
+elif command -v dnf     >/dev/null 2>&1; then PKG=dnf
+elif command -v pacman  >/dev/null 2>&1; then PKG=pacman
 else
   die "No supported package manager (brew/apt/dnf/pacman). Install postfix, fetchmail, python3 manually, then re-run."
 fi
-
-pkg_install() {  # $1 = generic tool name (postfix | fetchmail | python3)
+pkg_install() {  # $1 = postfix | fetchmail | python3
   case "$PKG:$1" in
     brew:python3)   brew install python ;;
     brew:*)         brew install "$1" ;;
@@ -96,30 +146,20 @@ pkg_install() {  # $1 = generic tool name (postfix | fetchmail | python3)
     pacman:*)       sudo pacman -S --needed --noconfirm "$1" ;;
   esac
 }
-
 [ "$PKG" = apt ] && { say "Refreshing apt package index…"; sudo apt-get update; }
-
-# Postfix is built into macOS; on Linux install it if missing.
 if [ "$OS" != "Darwin" ] && ! command -v postfix >/dev/null 2>&1; then
   say "Installing postfix…"; pkg_install postfix
 fi
-if ! command -v fetchmail >/dev/null 2>&1; then
-  say "Installing fetchmail…"; pkg_install fetchmail
-else
-  say "fetchmail already installed."
-fi
+command -v fetchmail >/dev/null 2>&1 || { say "Installing fetchmail…"; pkg_install fetchmail; }
 PYTHON=$(command -v python3 || true)
-if [ -z "$PYTHON" ]; then
-  say "Installing python3…"; pkg_install python3; PYTHON=$(command -v python3)
-fi
+[ -n "$PYTHON" ] || { say "Installing python3…"; pkg_install python3; PYTHON=$(command -v python3); }
 say "Using python3: $PYTHON"
 
-# --- Postfix → Gmail relay (/etc) ------------------------------------------
+# --- Postfix relay (/etc) ---------------------------------------------------
 MAIN_CF=/etc/postfix/main.cf
 SASL=/etc/postfix/sasl_passwd
 STAMP=$(date +%Y%m%d%H%M%S 2>/dev/null || echo backup)
 
-# CA bundle path differs by OS/distro — probe the usual locations.
 CAFILE=""
 for c in /etc/ssl/cert.pem /etc/ssl/certs/ca-certificates.crt /etc/pki/tls/certs/ca-bundle.crt; do
   [ -f "$c" ] && { CAFILE=$c; break; }
@@ -128,28 +168,31 @@ done
 say "Using CA bundle: $CAFILE"
 
 [ -f "$MAIN_CF" ] || die "$MAIN_CF not found — is Postfix installed? Install it, then re-run."
-if sudo grep -q '^relayhost = \[smtp.gmail.com\]:587' "$MAIN_CF" 2>/dev/null; then
-  say "main.cf already has the Gmail relay block — leaving it."
+if sudo grep -q "^relayhost = \[$SMTP_HOST\]:$SMTP_PORT" "$MAIN_CF" 2>/dev/null; then
+  say "main.cf already relays to $SMTP_HOST:$SMTP_PORT — leaving it."
 else
   say "Backing up $MAIN_CF and appending the relay block…"
   sudo cp "$MAIN_CF" "$MAIN_CF.vimmail.$STAMP.bak"
+  # Port 465 is implicit TLS (SMTPS) — Postfix needs wrappermode; 587 is STARTTLS.
+  WRAP=""
+  [ "$SMTP_PORT" = 465 ] && WRAP="smtp_tls_wrappermode = yes"
   sudo tee -a "$MAIN_CF" >/dev/null <<CF
 
-# --- added by vim-mail setup_lazyass.sh ---
-relayhost = [smtp.gmail.com]:587
+# --- added by vim-mail setup_lazyass.sh ($PROVIDER) ---
+relayhost = [$SMTP_HOST]:$SMTP_PORT
 smtp_sasl_auth_enable = yes
 smtp_sasl_password_maps = hash:/etc/postfix/sasl_passwd
 smtp_sasl_security_options = noanonymous
 smtp_tls_security_level = encrypt
 smtp_tls_CAfile = $CAFILE
 inet_protocols = ipv4
-smtp_sasl_mechanism_filter = plain
+smtp_sasl_mechanism_filter = plain, login
+$WRAP
 CF
 fi
 
 say "Writing $SASL (root, 600) and compiling…"
-# printf is a shell builtin, so the password is not exposed in the process list.
-printf '[smtp.gmail.com]:587\t%s:%s\n' "$EMAIL" "$APPPW" | sudo tee "$SASL" >/dev/null
+printf '[%s]:%s\t%s:%s\n' "$SMTP_HOST" "$SMTP_PORT" "$EMAIL" "$APPPW" | sudo tee "$SASL" >/dev/null
 sudo chmod 600 "$SASL"
 sudo postmap "$SASL"
 
@@ -171,7 +214,7 @@ RC="$HOME/.fetchmailrc"
 say "Writing $RC (600)…"
 umask 077
 cat > "$RC" <<RCEOF
-poll imap.gmail.com protocol IMAP
+poll $IMAP_HOST protocol IMAP
     user "$EMAIL" with password "$APPPW" is "$USER_NAME" here
     ssl
     mda "$PYTHON $REPO/scripts/mail_store.py ingest-stdin $MAIL_ROOT/inbox"
@@ -179,25 +222,27 @@ RCEOF
 chmod 600 "$RC"
 
 # --- verify the login (no mail sent) ---------------------------------------
-# Script in a temp file, password on stdin — so stdin isn't claimed by the
-# heredoc and the password never appears in argv or the environment.
-say "Verifying Gmail credentials (login only, nothing sent)…"
+say "Verifying credentials against $SMTP_HOST:$SMTP_PORT (login only, nothing sent)…"
 VERIFY=$(mktemp)
 cat > "$VERIFY" <<'PY'
 import sys, smtplib
-email = sys.argv[1]
+host, port, email = sys.argv[1], int(sys.argv[2]), sys.argv[3]
 pw = sys.stdin.read()
 try:
-    s = smtplib.SMTP("smtp.gmail.com", 587, timeout=15)
-    s.ehlo(); s.starttls(); s.ehlo(); s.login(email, pw); s.quit()
+    if port == 465:
+        s = smtplib.SMTP_SSL(host, port, timeout=15)
+    else:
+        s = smtplib.SMTP(host, port, timeout=15); s.ehlo(); s.starttls()
+    s.ehlo(); s.login(email, pw); s.quit()
     print("AUTH OK")
 except Exception as e:
     print("AUTH FAILED:", e); sys.exit(1)
 PY
-if printf '%s' "$APPPW" | "$PYTHON" "$VERIFY" "$EMAIL"; then
+if printf '%s' "$APPPW" | "$PYTHON" "$VERIFY" "$SMTP_HOST" "$SMTP_PORT" "$EMAIL"; then
   say "Credentials OK."
 else
-  warn "SMTP login failed — check the app password / 2FA. Relay config is in place; fix the password in $SASL (then 'sudo postmap $SASL') and $RC."
+  warn "SMTP login failed — check the app password / that IMAP-SMTP is enabled for the account."
+  warn "Relay config is in place; fix the password in $SASL (then 'sudo postmap $SASL') and $RC."
 fi
 rm -f "$VERIFY"
 
