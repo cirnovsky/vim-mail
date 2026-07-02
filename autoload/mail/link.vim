@@ -8,11 +8,13 @@
 
 let s:map = {}
 
-" Rebuild L from disk. Scans every mailbox under g:mail_root (skipping the hidden
-" content store) for its entry names. Cheap: readdir(), no stat/meta reads.
-function! mail#link#rebuild() abort
+" Rebuild L from disk. Scans every mailbox under the given root (default: the
+" active account's root), skipping the hidden content store, for its entry names.
+" Cheap: readdir(), no stat/meta reads. The root arg keeps L account-scoped when
+" :w reconciles the buffer being written (ids are per-store).
+function! mail#link#rebuild(...) abort
   let s:map = {}
-  let root = mail#mailbox#root()
+  let root = a:0 ? mail#mailbox#_normdir(a:1) : mail#mailbox#root()
   for mbox in glob(root . '/*', 0, 1)
     if !isdirectory(mbox) | continue | endif
     let name = fnamemodify(mbox, ':t')

@@ -111,7 +111,12 @@ function! mail#send#send() abort
   let orig_arg = exists('b:mail_compose_orig_dir')
         \ ? ' ' . shellescape(b:mail_compose_orig_dir) : ' ""'
   let sent_dir = mail#mailbox#root() . '/sent'
-  let result   = system(py_cmd . ' send ' . shellescape(tmpfile)
+  " Route transport per account: mail_store.py send reads $MAIL_SENDMAIL (the
+  " account's sendmail-compatible command, e.g. 'msmtp -a gmail -t'). Single
+  " account with no override -> unset -> the backend defaults to 'sendmail -t'.
+  let env = mail#account#is_multi()
+        \ ? 'MAIL_SENDMAIL=' . shellescape(mail#account#send_cmd()) . ' ' : ''
+  let result   = system(env . py_cmd . ' send ' . shellescape(tmpfile)
         \ . orig_arg . ' ' . shellescape(sent_dir))
   call delete(tmpfile)
   if v:shell_error != 0

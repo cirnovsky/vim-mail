@@ -14,8 +14,13 @@ function! mail#mailbox#_normdir(dir) abort
   return dir
 endfunction
 
-" The resolved, normalised mail-store root: g:mail_root if set, else the default.
+" The resolved, normalised mail-store root. In multi-account mode (g:mail_accounts
+" set) it's the active account's root; otherwise g:mail_root, else the default.
 function! mail#mailbox#root() abort
+  if mail#account#is_multi()
+    let r = mail#account#root()
+    if r !=# '' | return mail#mailbox#_normdir(r) | endif
+  endif
   return mail#mailbox#_normdir(get(g:, 'mail_root', s:DEFAULT_ROOT))
 endfunction
 

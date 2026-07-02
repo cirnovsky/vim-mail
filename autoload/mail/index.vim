@@ -30,9 +30,14 @@ function! mail#index#open(dir) abort
     " whose path is a real directory ("[New DIRECTORY]") — netrw/Vim then hijacks
     " the buffer and b:mail_dir is gone before refresh runs. Use 'mail://<name>'
     " (basename only) and create with noautocmd so no directory handler fires.
+    " In multi-account mode qualify with the account ('mail://gmail/inbox') so two
+    " accounts' same-named mailboxes get distinct buffers.
+    let bname = 'mail://'
+          \ . (mail#account#is_multi() ? mail#account#current() . '/' : '')
+          \ . fnamemodify(dir, ':t')
     noautocmd enew
     setlocal buftype=acwrite bufhidden=hide noswapfile nowrap nobuflisted
-    silent! noautocmd execute 'file ' . fnameescape('mail://' . fnamemodify(dir, ':t'))
+    silent! noautocmd execute 'file ' . fnameescape(bname)
     let b:mail_dir = dir
     let s:index_bufnrs[dir] = bufnr('%')
     setlocal filetype=mail-index

@@ -101,13 +101,23 @@ endfunction
 " and sends it to trash. Phase 1 does read-marks + pasted-label ADDS and collects
 " the deletes; phase 2 executes the deletes once every add is on disk.
 function! mail#actions#write() abort
-  let cur  = bufnr('%')
+  let cur = bufnr('%')
+  " Scope to ONE account: a mailbox lives at <root>/<mailbox>, so the store root
+  " is the parent of this buffer's dir. Only reconcile other modified buffers
+  " under the SAME root — a message's ids/labels/trash are all per-store, so
+  " committing across accounts in one :w would be wrong. (Single-account: this is
+  " just the one root, unchanged.)
+  let cur_dir = getbufvar(cur, 'mail_dir', '')
+  let root = cur_dir !=# '' ? fnamemodify(cur_dir, ':h') : mail#mailbox#root()
   let bufs = [cur]
   for bnr in mail#index#_index_buffers()
-    if bnr != cur && getbufvar(bnr, '&modified') | call add(bufs, bnr) | endif
+    if bnr != cur && getbufvar(bnr, '&modified')
+          \ && fnamemodify(getbufvar(bnr, 'mail_dir', ''), ':h') ==# root
+      call add(bufs, bnr)
+    endif
   endfor
 
-  let trash_root = mail#mailbox#root() . '/trash'
+  let trash_root = root . '/trash'
   let pending = []      " [ [entry, mail_dir], ... ] deletes deferred to phase 2
   let added   = 0
 
@@ -140,7 +150,7 @@ function! mail#actions#write() abort
 
   " --- Phase 2: execute deletes; the link map now reflects every add, so a
   "     moved message's dest label is counted and the source isn't trashed. ---
-  call mail#link#rebuild()
+  call mail#link#rebuild(root)
   for [entry, mail_dir] in pending
     call mail#actions#_delete_entry(entry, mail_dir, trash_root)
   endfor

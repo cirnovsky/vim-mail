@@ -7,6 +7,10 @@ let g:loaded_mail_plugin = 1
 " :Mail <box> -> open that mailbox directly
 command! -nargs=? -complete=customlist,mail#mailbox#_complete_mailbox Mail call mail#mailboxlist#mail_cmd(<q-args>)
 
+" :MailAccount <name> -> switch the active account (multi-account mode). See
+" g:mail_accounts in autoload/mail/account.vim.
+command! -nargs=1 -complete=customlist,mail#account#_complete MailAccount call mail#account#switch(<q-args>)
+
 " g:mail_from: Full From header, e.g. 'Your Name <you@gmail.com>'. Set in vimrc.
 let g:mail_from = get(g:, 'mail_from', '')
 

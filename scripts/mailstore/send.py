@@ -4,6 +4,7 @@ import email
 import html as html_module
 from email import policy
 from email.message import EmailMessage
+from email.utils import make_msgid
 from pathlib import Path
 from typing import Optional
 
@@ -92,6 +93,11 @@ def send_mail(
                 inline_imgs[num.strip()] = path.strip()
         else:
             msg[key] = val
+
+    # Generated here (not left to Postfix) so the locally-ingested sent copy
+    # carries the same Message-ID that goes out on the wire — otherwise a
+    # reply's In-Reply-To has nothing in the local store to thread against.
+    msg["Message-ID"] = make_msgid()
 
     # Inline forward: the buffer holds the user's note + a forwarded-header block;
     # the original body is appended here (unquoted, like Gmail) rather than living
@@ -219,8 +225,14 @@ def send_mail(
             fname = "".join(c if c.isalnum() or c in " ._-" else "_" for c in str(subj))[:60]
             msg.add_attachment(orig_msg, filename=f"{fname}.eml".strip())
 
+    # Transport is a sendmail-compatible command, taken from $MAIL_SENDMAIL so
+    # the caller can route per account (e.g. 'msmtp -a gmail -t'). Defaults to
+    # 'sendmail -t' — unchanged single-account behaviour.
+    import os
+    import shlex
+    transport = shlex.split(os.environ.get("MAIL_SENDMAIL", "sendmail -t"))
     msg_bytes = msg.as_bytes()
-    proc = subprocess.run(["sendmail", "-t"], input=msg_bytes, capture_output=True)
+    proc = subprocess.run(transport, input=msg_bytes, capture_output=True)
     if proc.returncode != 0:
         raise RuntimeError(proc.stderr.decode("utf-8", errors="replace").strip())
     if sent_dir is not None:
