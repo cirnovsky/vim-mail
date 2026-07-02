@@ -136,6 +136,12 @@ from both. All three are overridable in vimrc. The only out-of-repo path is the
 `mda` line in `~/.fetchmailrc` — run `./setup.sh` (optionally `--patch`) to
 generate/update it for the current machine.
 
+The **mail-store root** has a single source of truth: `mail#mailbox#root()`
+returns `g:mail_root` if set, else the `s:DEFAULT_ROOT` fallback (`~/Mail`),
+always through `_normdir`. Every module resolves the root through it — never a
+bare `get(g:, 'mail_root', '~/Mail')` literal — so the default lives in exactly
+one place.
+
 ## Index buffer design
 
 Each line: `<id>\t<N|space><*|space> <date>  <from>  <subject>`

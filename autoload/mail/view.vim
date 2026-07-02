@@ -239,7 +239,7 @@ function! mail#view#search() abort
   if pattern ==# ''
     return
   endif
-  let root = mail#mailbox#_normdir(get(g:, 'mail_root', '~/Mail'))
+  let root = mail#mailbox#root()
   try
     noautocmd execute 'vimgrep /' . escape(pattern, '/') . '/j ' . root . '/**/body.txt'
   catch /E480/

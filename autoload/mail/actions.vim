@@ -27,7 +27,7 @@ endfunction
 " --- content store: labels are symlinks <mailbox>/<id> -> ../.store/<id> ---
 
 function! mail#actions#_store_root() abort
-  return mail#mailbox#_normdir(get(g:, 'mail_root', '~/Mail')) . '/.store'
+  return mail#mailbox#root() . '/.store'
 endfunction
 
 " Add a mailbox label: <dest_dir>/<id> -> ../.store/<id> (relative, so the tree
@@ -139,7 +139,7 @@ function! mail#actions#write() abort
     if bnr != cur && getbufvar(bnr, '&modified') | call add(bufs, bnr) | endif
   endfor
 
-  let trash_root = mail#mailbox#_normdir(get(g:, 'mail_root', '~/Mail')) . '/trash'
+  let trash_root = mail#mailbox#root() . '/trash'
   let pending = []      " [ [entry, mail_dir], ... ] deletes deferred to phase 2
   let added   = 0
 
