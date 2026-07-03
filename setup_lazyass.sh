@@ -2,11 +2,14 @@
 # vim-mail one-shot setup (macOS + Linux) — any account+password mail provider.
 #
 # Give it an email; it detects the provider (Gmail, Yahoo, iCloud, Fastmail,
-# Zoho, Yandex, GMX, QQ, 163/126, …), then installs deps, configures the
-# Postfix relay to that provider's SMTP in /etc (backups, idempotent), writes
-# ~/.fetchmailrc pointed at its IMAP, creates the store, and verifies the login.
-# You provide the email, an app password (or authorization code), and your sudo
-# password (for /etc). Unknown providers: it asks for the IMAP/SMTP hosts.
+# Purelymail, Zoho, Yandex, GMX, QQ, 163/126, …), configures the Postfix relay to
+# that provider's SMTP in /etc (backups, idempotent), writes ~/.fetchmailrc
+# pointed at its IMAP, creates the store, and verifies the login. You provide the
+# email, an app password (or authorization code), and your sudo password (for
+# /etc). Unknown providers: it asks for the IMAP/SMTP hosts.
+#
+# It does NOT install dependencies — postfix, fetchmail, python3 must already be
+# present (see README "Needs"). It errors out listing anything missing.
 #
 # Works with any provider that still allows app-password / basic auth over
 # IMAP+SMTP. Providers that FORCE OAuth (Outlook.com / Microsoft 365, and Google
@@ -126,37 +129,17 @@ MAIL_ROOT=${MAIL_ROOT:-$DEFAULT_ROOT}
 case $MAIL_ROOT in "~") MAIL_ROOT=$HOME ;; "~/"*) MAIL_ROOT=$HOME/${MAIL_ROOT#"~/"} ;; esac
 USER_NAME=$(id -un)
 
+# --- required tools (this script does NOT install them; see README "Needs") --
+MISSING=""
+command -v python3   >/dev/null 2>&1 || MISSING="$MISSING python3"
+command -v fetchmail >/dev/null 2>&1 || MISSING="$MISSING fetchmail"
+command -v postfix   >/dev/null 2>&1 || MISSING="$MISSING postfix"
+[ -n "$MISSING" ] && die "Missing:$MISSING. Install them (see README 'Needs'), then re-run."
+PYTHON=$(command -v python3)
+say "Using python3: $PYTHON"
+
 say "Caching sudo (needed to write /etc/postfix)…"
 sudo -v
-
-# --- package manager + dependencies ----------------------------------------
-if [ "$OS" = "Darwin" ]; then
-  command -v brew >/dev/null 2>&1 || die "Homebrew not found. Install from https://brew.sh then re-run."
-  PKG=brew
-elif command -v apt-get >/dev/null 2>&1; then PKG=apt
-elif command -v dnf     >/dev/null 2>&1; then PKG=dnf
-elif command -v pacman  >/dev/null 2>&1; then PKG=pacman
-else
-  die "No supported package manager (brew/apt/dnf/pacman). Install postfix, fetchmail, python3 manually, then re-run."
-fi
-pkg_install() {  # $1 = postfix | fetchmail | python3
-  case "$PKG:$1" in
-    brew:python3)   brew install python ;;
-    brew:*)         brew install "$1" ;;
-    apt:*)          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y "$1" ;;
-    dnf:*)          sudo dnf install -y "$1" ;;
-    pacman:python3) sudo pacman -S --needed --noconfirm python ;;
-    pacman:*)       sudo pacman -S --needed --noconfirm "$1" ;;
-  esac
-}
-[ "$PKG" = apt ] && { say "Refreshing apt package index…"; sudo apt-get update; }
-if [ "$OS" != "Darwin" ] && ! command -v postfix >/dev/null 2>&1; then
-  say "Installing postfix…"; pkg_install postfix
-fi
-command -v fetchmail >/dev/null 2>&1 || { say "Installing fetchmail…"; pkg_install fetchmail; }
-PYTHON=$(command -v python3 || true)
-[ -n "$PYTHON" ] || { say "Installing python3…"; pkg_install python3; PYTHON=$(command -v python3); }
-say "Using python3: $PYTHON"
 
 # --- Postfix relay (/etc) ---------------------------------------------------
 MAIN_CF=/etc/postfix/main.cf

@@ -7,7 +7,11 @@ Vim-native design. Everything is a buffer. Operations on emails map to operation
 ## Setup
 
 macOS/Linux · Vim 8+ (`+job +timers +lambda +conceal`) · Python 3.9+ ·
-`fetchmail` · an account with an app password.
+`postfix` (send) · `fetchmail` (fetch) · an account with an app password.
+
+Install these yourself — `setup_lazyass.sh` won't. macOS ships Postfix, so just
+`brew install fetchmail`. Linux: `apt install postfix fetchmail` (or your PM).
+Optional (Linux clipboard for `<leader>a`/`<leader>p`): `xclip` or `wl-clipboard`.
 
 Vimrc setup using [vim-plug](https://github.com/junegunn/vim-plug):
 
