@@ -26,7 +26,7 @@ to be tested.
 
 ## Providers
 
-Works with password/app password: Gmail consumer accounts (@gmail.com), Yahoo, AOL, iCloud, Fastmail, Zoho, Yandex, GMX / Web.de, QQ / 163 / 126, self-hosted or generic IMAP+SMTP.
+Works with password/app password: Gmail consumer accounts (@gmail.com), Yahoo, AOL, iCloud, Fastmail, Purelymail, Zoho, Yandex, GMX / Web.de, QQ / 163 / 126, self-hosted or generic IMAP+SMTP.
 
 Does not work with normal password: Outlook / Hotmail / Microsoft 365, Google Workspace custom domains, Proton Mail except through paid Proton Bridge, Tuta.
 
