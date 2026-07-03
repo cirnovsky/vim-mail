@@ -31,8 +31,9 @@ function! Test_w_commits_all_modified_buffers() abort
 
   " inbox's delete committed even though we :w-rote from archive
   call assert_equal('', testmail#ftype(root . '/inbox/' . x), 'inbox delete committed')
-  call assert_equal('link', testmail#ftype(root . '/trash/' . x),
-        \ 'X was the last label -> fell to trash')
+  call assert_false(isdirectory(root . '/trash/' . x),
+        \ 'delete unlinks only — X is not moved to trash')
+  call assert_true(isdirectory(root . '/.store/' . x), 'X canon orphaned, kept')
 
   " archive's read-mark committed to the shared canon
   call assert_true(filereadable(root . '/.store/' . y . '/.read'), 'archive read committed')

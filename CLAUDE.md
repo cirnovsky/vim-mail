@@ -23,11 +23,12 @@ directory of **relative symlinks** into it. Membership = a label.
 ```
 
 - `<id>` (the store dir basename) is the stable per-line ID in the index buffer.
-- **copy** = another symlink, **move** = relink, **delete** = unlink. The last
-  label falling sends the message to `trash`; deleting from `trash` (its last
-  label) **orphans** the canon — the bytes are *kept*, never rm'd, so the delete
-  is undoable and recoverable; a future `:MailGC` frees orphans. Read-state is
-  shared: one `.store/<id>/.read` seen through every label.
+- **copy** = another symlink, **move** = relink, **delete** = unlink. Delete just
+  drops this mailbox's symlink — **no trash, no refcount.** A last-label delete
+  leaves the canon **orphaned** in `.store` (bytes *kept*, never rm'd — a future
+  `:MailGC` frees orphans). `trash` is a normal mailbox you can file into by hand;
+  `dd` never auto-populates it. Read-state is shared: one `.store/<id>/.read` seen
+  through every label.
 - `.store` and `.tmp_*`/`.linktmp_*` are dot-prefixed, so the index/mailbox
   readers (which skip `^\.`) never list them as messages.
 - Reads flow through symlinks transparently — `glob`/`isdirectory`/`readfile`
@@ -57,7 +58,6 @@ autoload/mail/mailbox.vim mailbox path resolution, completion, prompting
 autoload/mail/util.vim    shared helpers (py_cmd)
 autoload/mail/index.vim   index buffer: render, refresh/merge, line<->entry, cross-buffer :w helpers
 autoload/mail/actions.vim staged actions: marks, read/unread, delete + paste-link (:w)
-autoload/mail/link.vim    link map L {id -> mailboxes}: readdir-built refcount source
 autoload/mail/thread.vim  cross-mailbox message-id index
 autoload/mail/view.vim    reading: preview, full open, html/mime view, search
 autoload/mail/compose.vim compose, reply, forward
@@ -81,8 +81,7 @@ tests/testlib/autoload/testmail.vim  shared generator: build a store from .eml v
 tests/_fixtures.py        Python fixtures: eml()/build_store() (also via the real engine)
 tests/test_reply.py       reply/threading suite (Python)
 tests/test_store.py       content store: ingest -> .store + symlink, dedup, shared .read
-tests/test_store_ops.vim  link-safe delete: unlink, refcount, trash, orphan-not-destroy
-tests/test_link.vim       link map L: labels + count_others reflect disk
+tests/test_store_ops.vim  delete = unlink a label; no trash; last label -> orphan (bytes kept)
 tests/test_paste.vim      native dd+p = move / yy+p = copy across mailbox buffers
 tests/test_write_all.vim  one :w commits every modified index buffer
 tests/test_fetch_merge.vim fetch/nav merges new mail into a modified buffer, edits kept
@@ -161,21 +160,16 @@ Each line: `<id>\t<N|space><*|space> <date>  <from>  <subject>`
 
 `BufWriteCmd` calls `mail#actions#write()`, which commits the staged edits of the
 current index buffer **and every other modified index buffer** — one `:w`
-reconciles all mailboxes. It runs in **two phases** across those buffers, because
-a `dd`-here / paste-there move must add the destination label *before* dropping
-the source (else the refcount would treat the source as the last label and trash
-it):
-- **Phase 1** — reconcile read-marks and add pasted labels; *collect* the deletes.
-- **Phase 2** — execute the deletes, once every add is already on disk.
+reconciles all mailboxes. It's a **single pass** per buffer, order-independent:
+delete = unlink only (no trash, no refcount), so a move can't self-trash and
+there's nothing to sequence.
 
 Per buffer, diffing its lines against its `b:mail_entries` baseline:
-- **Line missing** → drop this mailbox's label (`_delete_entry`): unlink the
-  symlink, then consult L — last label → link into `trash`; last label *and*
-  already in `trash` → the canon is left **orphaned in `.store` (bytes kept)**,
-  never removed; still labelled elsewhere → just unlink. The plugin **never**
-  destroys canonical bytes on delete: no `rm`/`rf` of a canon, and never
-  `delete(...,'rf')` on a symlink (that rf's through into the store) — flagless
-  `delete()` unlinks safely.
+- **Line missing** → drop this mailbox's label: `_unlink` the symlink, full stop.
+  A last-label delete leaves the canon **orphaned in `.store` (bytes kept)**. The
+  plugin **never** destroys canonical bytes on delete: no `rm`/`rf` of a canon,
+  and never `delete(...,'rf')` on a symlink (that rf's through into the store) —
+  flagless `delete()` unlinks safely.
 - **Line present but not in the baseline** → a line pasted from another mailbox
   (native `dd`+`p` / `yy`+`p`): `_add_pasted_labels` links it here (`ln -s` into
   the existing `.store` canon). An id that resolves to no canon is ignored.
@@ -192,24 +186,14 @@ redo of a delete becomes an unlink / re-link on the next write). This is why
 `write()` must NOT call `refresh()` for the current buffer — `refresh()` clears
 undo (see below).
 
-### Formalization — delete lattice and refresh modes
+### Formalization — delete and refresh modes
 
-**Delete (drop-label).** For message `id` with on-disk label-set `L(id)` (mailbox
-dirs holding a symlink `<id> -> ../.store/<id>`; `mail#link#rebuild` counts them by
-`readdir` name), committing a delete from mailbox `m`:
+**Delete (drop-label).** Committing a delete of message `id` from mailbox `m` is
+just `unlink(m/id)` — no trash, no refcount, no ordering. If that was the last
+label the canon is orphaned in `.store`; bytes stay until a future `:MailGC`.
 
-```
-unlink(m/id)
-if |L(id) \ {m}| > 0:        stop           # still labelled elsewhere
-elif m ≠ trash:              link(trash/id) # last label → recoverable in trash
-else (m = trash):            stop           # canon orphaned in .store, bytes kept
-```
-
-Invariant **B (bytes)**: the plugin never removes canonical bytes on delete —
-`|L(id)| = 0` with the canon still present is a legal *orphan* state, freed only
-by a future `:MailGC`. Invariant **T (trash)**: trash only ever holds a symlink
-(bytes stay in `.store`), so trashing/untrashing is pure link bookkeeping, never a
-byte move.
+Invariant **B (bytes)**: the plugin never removes canonical bytes on delete — a
+label-less canon is a legal *orphan* state, freed only by `:MailGC`.
 
 **Refresh modes.** Three buffer-repaint paths, characterised by two properties —
 does it pick up newly-appeared disk mail, and does it preserve the undo tree:
@@ -282,20 +266,19 @@ a different read state than disk baseline.
 Scans buffer for the line whose ID matches `b:mail_entries[idx].id`, updates
 that line directly. O(n) scan but only called once per message open.
 
-**Content store & link operations (`mail#actions#*`, `mail#link#*`)**
+**Content store & link operations (`mail#actions#*`)**
 - `_store_root()` = `<mail_root>/.store`. `_make_link(id, dest)` shells out to
   `ln -s ../.store/<id> dest/<id>` (Vim has no native `symlink()`). `_unlink(dir)`
   = flagless `delete()` — unlinks a symlink, never rf's through it.
 - `getftype(target) !=# ''` = "a label already exists here" (skip the link).
   Labels are always store symlinks (`getftype == 'link'`); the plugin does not
   handle legacy real dirs at runtime — the store must already be content-store.
-- **Link map L** (`autoload/mail/link.vim`): `{id → {mailbox-name → 1}}`, rebuilt
-  from `readdir()` (names only, no meta reads) at `:Mail`/`open()` and at the top
-  of each `write()`. `count_others(id, mbox)` is the O(1) last-label refcount —
-  it excludes `mbox`, so the just-done unlink in `_delete_entry` doesn't skew it.
+- **No refcount / link map.** Delete just `_unlink`s a label; there's no
+  `count_others` and no L to maintain (removed with the trash-on-last-label
+  logic). A last-label delete orphans the canon in `.store`.
 - There are no move/copy *functions* — move is `dd`+`p`, copy is `yy`+`p`, both
   reconciled by `write()`: `_add_pasted_labels` (the add, `ln -s` into the canon)
-  + the delete pass (the drop). No `_guarded_targets`/`_resolve_dest`, and no
+  + a plain `_unlink` (the drop). No `_guarded_targets`/`_resolve_dest`, and no
   migrate-on-touch (`_ensure_canonical`/`_find_source` were dropped with legacy).
 
 **Msgid index cache**
@@ -409,7 +392,7 @@ read; the index stays a 1-line sliver so `:q` returns to it (no quit-Vim risk).
 | `x` | Open `body.html` in browser (inline `cid:` images shown via a temp data-URI copy) |
 | `/` | Native Vim search (From/Subject visible text) |
 | `<leader>s` | Full-text vimgrep across all `body.txt` files → quickfix |
-| `dd`, `d3j`, `:g/pat/d` | Staged delete (unlink label; last label → trash) — committed on `:w` |
+| `dd`, `d3j`, `:g/pat/d` | Staged delete (unlink label; last label → orphaned in `.store`, no trash) — committed on `:w` |
 | `dd`+`p` / `yy`+`p` | Native cross-buffer move / copy (paste into another mailbox buffer; linked on `:w`) |
 | `s` | Mark targets read (staged) |
 | `S` | Mark targets unread (staged) |

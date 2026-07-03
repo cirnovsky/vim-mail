@@ -67,39 +67,16 @@ function! mail#actions#_add_pasted_labels(buf_ids, baseline, mbox_dir) abort
   return added
 endfunction
 
-" Commit one staged delete of <entry> from mailbox <mbox_dir>. Drop-label
-" semantics (see CLAUDE.md "delete lattice"):
-"   unlink the label; last label -> fall to trash; last label AND in trash ->
-"   the canon is left orphaned in .store (bytes KEPT, never rm'd — the delete
-"   stays undoable; a future :MailGC frees orphans).
-function! mail#actions#_delete_entry(entry, mbox_dir, trash_root) abort
-  let id  = a:entry.id
-  let dir = a:entry.dir
-  let in_trash = (mail#mailbox#_normdir(a:mbox_dir) ==# a:trash_root)
-
-  " Drop this mailbox's label. Bytes are NEVER destroyed — the canon in .store
-  " stays; count_others reads the link-map snapshot from the top of write() (it
-  " excludes this mailbox, so the just-done unlink doesn't skew the answer).
-  call mail#actions#_unlink(dir)
-  if mail#link#count_others(id, fnamemodify(a:mbox_dir, ':t')) > 0
-    " still labelled by another mailbox — survives; no trash
-    return
-  endif
-  if !in_trash
-    call mail#actions#_make_link(id, a:trash_root)   " last label -> trash (recoverable)
-  endif
-  " last label AND in trash -> the canon is now an orphan in .store (kept; a
-  " future :MailGC frees orphans). We never rm bytes here.
-endfunction
-
 " BufWriteCmd handler. `:w` commits the staged edits of the current index buffer
 " AND every other modified index buffer — one write reconciles all mailboxes.
 "
-" Reconciliation runs in two phases across all those buffers, because a
-" dd-here / paste-there move must add the destination label BEFORE dropping the
-" source one: otherwise the refcount sees the source as the message's last label
-" and sends it to trash. Phase 1 does read-marks + pasted-label ADDS and collects
-" the deletes; phase 2 executes the deletes once every add is on disk.
+" One pass per buffer, order-independent: for each mailbox, drop labels for lines
+" removed from the buffer (unlink only — NO trash, NO refcount), reconcile the
+" read-mark of lines still present, and link lines pasted from another mailbox.
+" A delete just removes this mailbox's symlink; if it was the message's last
+" label the canon is left orphaned in .store (bytes kept — a future :MailGC frees
+" it). Move (dd+p) = unlink source + link dest; the canon lives in .store the
+" whole time, and with no trash/refcount there is nothing to sequence.
 function! mail#actions#write() abort
   let cur  = bufnr('%')
   let bufs = [cur]
@@ -107,24 +84,28 @@ function! mail#actions#write() abort
     if bnr != cur && getbufvar(bnr, '&modified') | call add(bufs, bnr) | endif
   endfor
 
-  let trash_root = mail#mailbox#root() . '/trash'
-  let pending = []      " [ [entry, mail_dir], ... ] deletes deferred to phase 2
   let added   = 0
+  let deleted = 0
 
-  " --- Phase 1: reconcile reads + add pasted labels; collect deletes ---
   for bnr in bufs
     let mail_dir = getbufvar(bnr, 'mail_dir', '')
     if mail_dir ==# '' | continue | endif
+
+    " {id -> read?} for every buffer line.
     let buf_state = {}
     for l in getbufline(bnr, 1, '$')
       let tab = stridx(l, "\t")
       if tab > 0 | let buf_state[l[:tab - 1]] = l[tab + 1] !=# 'N' | endif
     endfor
+
+    " Baseline entry gone from the buffer -> drop this label (unlink, no trash).
+    " Still present -> reconcile its read-mark to the shared canon .read.
     let baseline = {}
     for entry in getbufvar(bnr, 'mail_entries', [])
       let baseline[entry.id] = 1
       if !has_key(buf_state, entry.id)
-        call add(pending, [entry, mail_dir])                 " staged delete
+        call mail#actions#_unlink(entry.dir)
+        let deleted += 1
       else
         let buf_read  = buf_state[entry.id]
         let disk_read = filereadable(entry.dir . '/.read')
@@ -135,24 +116,16 @@ function! mail#actions#write() abort
         endif
       endif
     endfor
+
+    " Buffer ids absent from the baseline are pasted from another mailbox.
     let added += mail#actions#_add_pasted_labels(keys(buf_state), baseline, mail_dir)
   endfor
 
-  " --- Phase 2: execute deletes; the link map now reflects every add, so a
-  "     moved message's dest label is counted and the source isn't trashed. ---
-  call mail#link#rebuild()
-  for [entry, mail_dir] in pending
-    call mail#actions#_delete_entry(entry, mail_dir, trash_root)
-  endfor
+  if deleted > 0 | echom 'Deleted ' . deleted . ' message(s)' | endif
+  if added > 0   | echom 'Linked '  . added   . ' message(s)' | endif
 
-  if len(pending) > 0 | echom 'Deleted ' . len(pending) . ' message(s)' | endif
-  if added > 0        | echom 'Linked ' . added . ' message(s)' | endif
-
-  " Refresh the current buffer (it ends with nomodified); resync the others'
-  " baselines + clear &modified.
-  " Post-commit, every committed buffer already equals disk, so re-baseline
-  " WITHOUT rewriting lines (no destroy-recreate, no undolevels reset) — this is
-  " what lets `u` survive `:w`.
+  " Post-commit each buffer already equals disk; re-baseline WITHOUT rewriting
+  " lines (no destroy-recreate, no undolevels reset) so `u` survives `:w`.
   for bnr in bufs
     call mail#index#_resync_baseline(bnr)
   endfor
@@ -161,8 +134,8 @@ endfunction
 " Move and copy are native buffer gestures now, committed on :w:
 "   dd here + p in another mailbox buffer  = move  (source unlinked, dest linked)
 "   yy      + p                            = copy  (source kept, dest linked)
-" Both reconcile through write() -> _add_pasted_labels (the add) + the delete
-" pass (the drop). There is no :M/:Move/:Copy command; `-` opens the launcher so
+" Both reconcile through write() -> _add_pasted_labels (the add) + an unlink
+" (the drop). There is no :M/:Move/:Copy command; `-` opens the launcher so
 " opening the destination to paste into is one keystroke.
 
 function! mail#actions#read(read) abort
