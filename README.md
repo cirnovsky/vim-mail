@@ -4,34 +4,17 @@ A mail client in Vim.
 
 Vim-native design. Everything is a buffer. Operations on emails map to operations in vim.
 
-## Setup
+## Deps & Setup
 
 macOS/Linux · Vim 8+ (`+job +timers +lambda +conceal`) · Python 3.9+ ·
-`postfix` (send) · `fetchmail` (fetch) · an account with an app password.
-
-Install these yourself — `setup_lazyass.sh` won't. macOS ships Postfix, so just
-`brew install fetchmail`. Linux: `apt install postfix fetchmail` (or your PM).
-Optional (Linux clipboard for `<leader>a`/`<leader>p`): `xclip` or `wl-clipboard`.
-
-Vimrc setup using [vim-plug](https://github.com/junegunn/vim-plug):
-
-```vim
-call plug#begin()
-Plug '/path/to/plugin'
-" or, Plug 'cirnovsky/vim-mail'
-call plug#end()
-let g:mail_root = '/path/to/Mail'
-let g:mail_from = 'You <you@example.com>'
-```
-
-Then
+`postfix`  · `fetchmail` 
 
 `./setup_lazyass.sh` — use at discretion, it modifies `/etc/` to set up Postfix. Linux has yet
 to be tested.
 
 ## Providers
 
-Works with password/app password: Gmail consumer accounts (@gmail.com), Yahoo, AOL, iCloud, Fastmail, Purelymail, Zoho, Yandex, GMX / Web.de, QQ / 163 / 126, self-hosted or generic IMAP+SMTP.
+Works with password/app password: Gmail, Yahoo, AOL, iCloud, Fastmail, Purelymail, Zoho, Yandex, GMX / Web.de, QQ / 163 / 126, self-hosted or generic IMAP+SMTP.
 
 Does not work with normal password: Outlook / Hotmail / Microsoft 365, Google Workspace custom domains, Proton Mail except through paid Proton Bridge, Tuta.
 
