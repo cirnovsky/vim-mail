@@ -17,7 +17,8 @@ Vimrc setup using [vim-plug](https://github.com/junegunn/vim-plug):
 
 ```vim
 call plug#begin()
-Plug 'cirnovsky/vim-mail'
+Plug '/path/to/plugin'
+" or, Plug 'cirnovsky/vim-mail'
 call plug#end()
 let g:mail_root = '/path/to/Mail'
 let g:mail_from = 'You <you@example.com>'

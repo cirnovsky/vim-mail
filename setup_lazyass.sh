@@ -99,9 +99,11 @@ set_provider() {  # $1 = lowercased email domain
 [ "${VIMMAIL_TEST:-}" = 1 ] && return 0
 
 # --- precaution / confirm ---------------------------------------------------
-warn "This will edit system files (/etc/postfix/main.cf + sasl_passwd), (re)start"
-warn "Postfix, and write ~/.fetchmailrc. Changes are backed up to *.vimmail.*.bak,"
-warn "but this is best-effort — it's an automated version of mail-setup.md's steps."
+warn "This will:"
+warn "  edit system files (/etc/postfix/main.cf + sasl_passwd);"
+warn "  (re)start Postfix, and write ~/.fetchmailrc."
+warn "Changes are backed up to *.vimmail.*.bak"
+warn "Use it at your own discretion. You have been warned."
 [ "$OS" = "Linux" ] && warn "NOTE: the Linux path is UNTESTED. Verify each step or follow mail-setup.md by hand."
 printf 'Proceed? [y/N]: '; read -r ANS
 case $ANS in [Yy]|[Yy][Ee][Ss]) ;; *) die "Aborted." ;; esac
