@@ -59,4 +59,4 @@ You can actually do cool things like:
 - Merge OAuth support (Outlook/M365, Google Workspace) from `multi-account-oauth`.
 - `:MailGC` to sweep orphaned canons from `.store`.
 - Scale optimization · message reflow · actionable `[N]` link/attachment jumps.
-- Vim-native operator keymaps (unify `t`/`s`/`S`/`dd`) · CI clipboard testing.
+- Vim-native operator keymaps (unify `s`/`S`/`dd`) · CI clipboard testing.

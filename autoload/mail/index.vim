@@ -72,7 +72,7 @@ function! mail#index#_merge_new() abort
   endfor
   for e in mail#index#_read_entries(b:mail_dir)
     if has_key(baseline_ids, e.id) || has_key(buf_ids, e.id) | continue | endif
-    let line = mail#index#_format_line(e.id, e.meta, e.read, 0)
+    let line = mail#index#_format_line(e.id, e.meta, e.read)
     let placed = 0
     for ln in range(1, line('$'))
       let l = getline(ln)
@@ -138,7 +138,7 @@ function! mail#index#refresh() abort
   let entries = mail#index#_read_entries(b:mail_dir)
   let lines = []
   for e in entries
-    call add(lines, mail#index#_format_line(e.id, e.meta, e.read, 0))
+    call add(lines, mail#index#_format_line(e.id, e.meta, e.read))
   endfor
 
   let b:mail_entries = entries
@@ -205,10 +205,9 @@ function! mail#index#_trunc(s, width) abort
   return a:s . repeat(' ', a:width - strchars(a:s))
 endfunction
 
-function! mail#index#_format_line(id, meta, read, marked) abort
+function! mail#index#_format_line(id, meta, read) abort
   let r = a:read ? ' ' : 'N'
-  let m = a:marked ? '*' : ' '
-  return a:id . "\t" . r . m . ' ' . mail#index#_short_date(a:meta.date) . '  '
+  return a:id . "\t" . r . ' ' . mail#index#_short_date(a:meta.date) . '  '
         \ . mail#index#_trunc(a:meta.from, 28) . '  ' . a:meta.subject
 endfunction
 
@@ -249,8 +248,7 @@ function! mail#index#_flush_pending(timer) abort
       let tab = stridx(l, "\t")
       if tab >= 0 && has_key(id_to_entry, l[:tab - 1])
         let e = id_to_entry[l[:tab - 1]]
-        call add(new_lines, mail#index#_format_line(e.id, e.meta,
-              \ l[tab + 1] !=# 'N', l[tab + 2] ==# '*'))
+        call add(new_lines, mail#index#_format_line(e.id, e.meta, l[tab + 1] !=# 'N'))
       else
         call add(new_lines, l)
       endif
@@ -299,25 +297,11 @@ function! mail#index#_current_index() abort
 endfunction
 
 function! mail#index#_target_indexes() abort
-  if !exists('b:mail_entries')
-    return []
-  endif
-  let map  = mail#index#_id_to_idx()
-  let idxs = []
-  for ln in range(1, line('$'))
-    let l   = getline(ln)
-    let tab = stridx(l, "\t")
-    if tab >= 0 && l[tab + 2] ==# '*'
-      let eidx = get(map, l[:tab - 1], -1)
-      if eidx >= 0 | call add(idxs, eidx) | endif
-    endif
-  endfor
-  if !empty(idxs) | return idxs | endif
   let idx = mail#index#_current_index()
   return idx == -1 ? [] : [idx]
 endfunction
 
-" Core batch primitive: apply Fn(read, marked) -> [new_read, new_marked]
+" Core batch primitive: apply Fn(read) -> new_read.
 " targets: {entry_idx: 1}; empty = all lines.
 " Looks up entries by ID from each line — safe after dd.
 function! mail#index#_patch_lines(targets, Fn) abort
@@ -332,9 +316,8 @@ function! mail#index#_patch_lines(targets, Fn) abort
       let id   = l[:tab - 1]
       let eidx = get(id_to_idx, id, -1)
       if eidx >= 0 && (apply_all || has_key(a:targets, eidx))
-        let result = a:Fn(l[tab + 1] !=# 'N', l[tab + 2] ==# '*')
         let e = entries[eidx]
-        call add(new_lines, mail#index#_format_line(e.id, e.meta, result[0], result[1]))
+        call add(new_lines, mail#index#_format_line(e.id, e.meta, a:Fn(l[tab + 1] !=# 'N')))
         continue
       endif
     endif

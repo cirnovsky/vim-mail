@@ -1,29 +1,6 @@
 " Staged actions on the index: marks, read/unread, delete (:w), move.
 " Part of vim-mail; the frontend never parses MIME (that's mail_store.py).
 
-function! mail#actions#_set_mark_opfunc() abort
-  let &operatorfunc = 'mail#actions#ToggleMarkOperator'
-  return 'g@'
-endfunction
-
-function! mail#actions#clear_marks() abort
-  call mail#index#_patch_lines({}, {r, m -> [r, 0]})
-endfunction
-
-function! mail#actions#ToggleMarkOperator(type) abort
-  let targets    = {}
-  let id_to_idx  = mail#index#_id_to_idx()
-  for ln in range(line("'["), line("']"))
-    let l   = getline(ln)
-    let tab = stridx(l, "\t")
-    if tab >= 0
-      let eidx = get(id_to_idx, l[:tab - 1], -1)
-      if eidx >= 0 | let targets[eidx] = 1 | endif
-    endif
-  endfor
-  call mail#index#_patch_lines(targets, {r, m -> [r, !m]})
-endfunction
-
 " --- content store: labels are symlinks <mailbox>/<id> -> ../.store/<id> ---
 
 function! mail#actions#_store_root() abort
@@ -136,7 +113,7 @@ endfunction
 function! mail#actions#read(read) abort
   let targets = {}
   for idx in mail#index#_target_indexes() | let targets[idx] = 1 | endfor
-  call mail#index#_patch_lines(targets, {r, m -> [a:read, m]})
+  call mail#index#_patch_lines(targets, {r -> a:read})
 endfunction
 
 function! mail#actions#_set_read(idx, read) abort
@@ -150,11 +127,6 @@ function! mail#actions#_set_read(idx, read) abort
     endif
   endfor
   if lnum == -1 | return | endif
-  let l   = getline(lnum)
-  let tab = stridx(l, "\t")
-  if tab >= 0
-    noautocmd call setline(lnum,
-          \ mail#index#_format_line(e.id, e.meta, a:read, l[tab + 2] ==# '*'))
-  endif
+  noautocmd call setline(lnum, mail#index#_format_line(e.id, e.meta, a:read))
   call mail#index#_sync_modified()
 endfunction

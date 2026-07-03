@@ -145,12 +145,12 @@ one place.
 
 ## Index buffer design
 
-Each line: `<id>\t<N|space><*|space> <date>  <from>  <subject>`
+Each line: `<id>\t<N|space> <date>  <from>  <subject>`
 
 - `id` is concealed (`conceallevel=2`)
 - current line underlined: buffer-local `cursorline` + `CursorLine` restyled to a
   plain (no-background) underline in `ftplugin/mail-index.vim`
-- `N` = unread, space = read; `*` = marked, space = unmarked
+- `N` = unread, space = read
 - `dd`/`d3j`/`:g//d` work natively — Vim's own delete machinery
 - `b:mail_entries` = disk baseline (`[{id, dir, read, meta}]`), ordered by original sort
 - Buffer text is the **authoritative staged state** for both read/unread and deletions
@@ -250,12 +250,12 @@ After `dd`, buffer line N no longer corresponds to `b:mail_entries[N-1]`. All
 functions that need to find an entry from a buffer line extract the concealed
 `id` prefix and look it up via `mail#index#_id_to_idx()` (returns `{id → entry_idx}`).
 Affected functions: `_current_index`, `_target_indexes`, `_patch_lines`,
-`_set_read`, `_flush_pending`, `ToggleMarkOperator`. Never use `line('.') - 1`
+`_set_read`, `_flush_pending`. Never use `line('.') - 1`
 as a `b:mail_entries` index.
 
 **Batch line updates — `mail#index#_patch_lines(targets, Fn)`**
 - `targets`: `{entry_idx: 1}`; empty = all lines
-- `Fn(read, marked) -> [new_read, new_marked]`
+- `Fn(read) -> new_read`
 - Iterates current buffer lines, resolves entry by ID, applies Fn
 - One `noautocmd setline(1, list)` call regardless of selection size
 
@@ -399,10 +399,8 @@ read; the index stays a 1-line sliver so `:q` returns to it (no quit-Vim risk).
 | `<leader>s` | Full-text vimgrep across all `body.txt` files → quickfix |
 | `dd`, `d3j`, `:g/pat/d` | Staged delete (unlink label; last label → orphaned in `.store`, no trash) — committed on `:w` |
 | `dd`+`p` / `yy`+`p` | Native cross-buffer move / copy (paste into another mailbox buffer; linked on `:w`) |
-| `s` | Mark targets read (staged) |
-| `S` | Mark targets unread (staged) |
-| `t` / `tt` / `t3j` | Toggle selection mark `*` (operator-pending) |
-| `T` | Clear all marks |
+| `s` | Mark current line read (staged) |
+| `S` | Mark current line unread (staged) |
 | `-` | Up to the mailbox launcher (`:Mail` list) |
 | `r` | Reply (opens compose buffer, `:w` sends) |
 | `f` | Forward inline (original embedded in the body; re-render, like Gmail) |
@@ -417,7 +415,8 @@ macOS (built-in `osascript`); Linux uses `wl-paste`/`xclip`.
 | `R` | Refresh from disk (explicit — discards staged edits) |
 | `q` | Close buffer |
 
-"Targets" for `s`/`S`: all `*`-marked messages if any, else current line.
+`s`/`S` act on the current line. For several at once, use `:g/pat/normal s` or a
+visual range with a `:normal`.
 
 ## Mailbox launcher
 
@@ -512,8 +511,6 @@ the `Cc` field was added to `_write_meta` will have it in meta.
   mailboxes (an accidental copy — recoverable by `dd`-ing one). Accepted as the
   price of the native-gesture model; there's no command-move alternative anymore.
   (*Future:* a batch `:M`/`:Move` could be added back later.)
-- `t` (toggle mark, operator-pending) and `T` (clear marks) overlap in mnemonic
-  space — kept as-is for now.
 - The plugin requires the content-store layout — no migrator ships. A
   pre-content-store store still *renders* (reads follow real dirs or symlinks
   alike), but move/delete/copy assume symlink labels; to onboard old mail,

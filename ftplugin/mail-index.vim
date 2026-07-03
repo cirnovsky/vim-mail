@@ -21,9 +21,6 @@ nnoremap <buffer> <silent> o    :call mail#view#preview(0)<CR>
 nnoremap <buffer> <silent> v    :call mail#view#preview(1)<CR>
 nnoremap <buffer> <silent> gm        :call mail#view#mimeview()<CR>
 nnoremap <buffer> <silent> x          :call mail#view#open_html()<CR>
-nnoremap <buffer> <expr>   t    mail#actions#_set_mark_opfunc()
-nmap     <buffer>          tt   t_
-nnoremap <buffer> <silent> T    :call mail#actions#clear_marks()<CR>
 " Move = dd here + p there; copy = yy + p (committed on :w). `-` goes up to the
 " mailbox launcher, so opening the destination to paste into is the natural gesture.
 nnoremap <buffer> <silent> -    :call mail#mailboxlist#open()<CR>
