@@ -10,4 +10,5 @@ highlight CursorLine cterm=underline gui=underline ctermbg=NONE guibg=NONE
 
 nnoremap <buffer> <silent> <CR>          :call mail#mailboxlist#enter()<CR>
 nnoremap <buffer> <silent> <2-LeftMouse> :call mail#mailboxlist#enter()<CR>
+nnoremap <buffer> <silent> <leader>f     :call mail#fetch#fetch()<CR>
 nnoremap <buffer> <silent> q             :bwipeout<CR>
