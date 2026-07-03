@@ -1,6 +1,7 @@
 " Headless suite for content-store delete on :w:
-"   delete = unlink (last label falls -> trash; from trash -> canon orphaned but
-"            KEPT; a still-labelled message just loses one label).
+"   delete = unlink a label. NO trash, NO refcount — dd just drops this mailbox's
+"   symlink. A last-label delete leaves the canon orphaned in .store (bytes KEPT);
+"   a still-labelled message just loses one label.
 " The critical invariant: a delete must NEVER destroy bytes — no rm/rf of a canon
 " (orphans are freed later by a future :MailGC), and never rf through a symlink.
 "
@@ -17,8 +18,8 @@ runtime plugin/mail.vim
 runtime! autoload/mail/*.vim
 filetype plugin on   " wire the <buffer> keymaps + BufWriteCmd we drive below
 
-" --- delete the last label -> message goes to trash (recoverable), canon kept ---
-function! Test_delete_last_link_to_trash() abort
+" --- delete the last label -> label unlinked, canon orphaned (NOT trashed) ---
+function! Test_delete_last_label_orphans() abort
   let root = tempname() . '/Mail'
   let id = testmail#ingest(root, 'inbox', 'plain')
   let g:mail_root = root
@@ -29,10 +30,10 @@ function! Test_delete_last_link_to_trash() abort
   silent write
 
   call assert_equal('', testmail#ftype(root . '/inbox/' . id), 'inbox label removed')
-  call assert_equal('link', testmail#ftype(root . '/trash/' . id),
-        \ 'last label falls into trash as a symlink')
+  call assert_false(isdirectory(root . '/trash/' . id),
+        \ 'dd does NOT move to trash — it just unlinks the label')
   call assert_true(isdirectory(root . '/.store/' . id),
-        \ 'canonical bytes preserved (recoverable)')
+        \ 'canonical bytes preserved (orphaned; a future :MailGC frees them)')
 
   call testmail#wipe_buffers()
   call delete(root, 'rf')
@@ -106,7 +107,7 @@ endfunction
 " --- runner ---
 let v:errors = []
 let s:tests = [
-      \ 'Test_delete_last_link_to_trash',
+      \ 'Test_delete_last_label_orphans',
       \ 'Test_delete_one_of_two_labels',
       \ 'Test_trash_delete_orphans_canon',
       \ 'Test_delete_from_trash_keeps_canon_if_linked_elsewhere',

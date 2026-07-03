@@ -37,9 +37,6 @@ function! mail#index#open(dir) abort
     let s:index_bufnrs[dir] = bufnr('%')
     setlocal filetype=mail-index
   endif
-  " Build the link map L from readdirs (names only) — the refcount source for
-  " last-label delete decisions across all loaded mailboxes.
-  call mail#link#rebuild()
   " First open, or returning to an UNMODIFIED buffer: full refresh (picks up
   " newly-fetched mail). Returning to a buffer with staged edits: DON'T
   " full-refresh (it would discard the pending dd/paste/read-toggle — the bug that
