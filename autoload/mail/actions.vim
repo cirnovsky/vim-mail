@@ -30,41 +30,28 @@ function! mail#actions#_store_root() abort
   return mail#mailbox#root() . '/.store'
 endfunction
 
-" Add a mailbox label: <dest_dir>/<id> -> ../.store/<id> (relative, so the tree
-" stays relocatable). Vim has no native symlink(), so shell out to `ln -s`.
-" Returns 0 on success, nonzero on failure.
-function! mail#actions#_make_link(id, dest_dir) abort
-  if !isdirectory(a:dest_dir)
-    call mkdir(a:dest_dir, 'p')
+" A label IS a symlink <mbox_dir>/<id> -> ../.store/<id>. Deleting a message and
+" pasting one in are the two directions of the SAME operation: set message <id>'s
+" membership in mailbox <mbox_dir>.
+"   on=1  add the label: `ln -s ../.store/<id>` (relative, so the tree stays
+"         relocatable; Vim has no native symlink()). No-op if the label already
+"         exists here or <id> resolves to no canon in .store (a stray yank).
+"   on=0  drop the label: flagless delete() unlinks the symlink and NEVER follows
+"         it into .store, so a drop can't rf through and destroy the shared bytes.
+" Returns 1 if it changed disk, 0 for a no-op (redundant add / absent-label drop).
+function! mail#actions#_label(id, mbox_dir, on) abort
+  let link = a:mbox_dir . '/' . a:id
+  let here = getftype(link) !=# ''
+  if a:on
+    if here | return 0 | endif
+    if !isdirectory(mail#actions#_store_root() . '/' . a:id) | return 0 | endif
+    if !isdirectory(a:mbox_dir) | call mkdir(a:mbox_dir, 'p') | endif
+    call system('ln -s ' . shellescape('../.store/' . a:id) . ' ' . shellescape(link))
+    return v:shell_error == 0 ? 1 : 0
   endif
-  call system('ln -s ' . shellescape('../.store/' . a:id) . ' '
-        \ . shellescape(a:dest_dir . '/' . a:id))
-  return v:shell_error
-endfunction
-
-" Remove a mailbox label. delete() with NO flags unlinks a file/symlink; it
-" never follows a symlink into its target, so dropping a label can never rf
-" through into .store and destroy the shared canonical bytes.
-function! mail#actions#_unlink(dir) abort
-  call delete(a:dir)
-endfunction
-
-" Link ids present in the buffer but absent from the disk baseline — lines
-" pasted from another mailbox's index (native yy+p = copy, dd+p = move once the
-" source buffer is also written). Each must resolve to a canonical object in
-" .store; a line that resolves to nothing (stray yank / garbage) is ignored.
-" Returns the count linked.
-function! mail#actions#_add_pasted_labels(buf_ids, baseline, mbox_dir) abort
-  let store = mail#actions#_store_root()
-  let added = 0
-  for id in a:buf_ids
-    if has_key(a:baseline, id) | continue | endif
-    if getftype(a:mbox_dir . '/' . id) !=# '' | continue | endif   " already linked here
-    if isdirectory(store . '/' . id)
-      if mail#actions#_make_link(id, a:mbox_dir) == 0 | let added += 1 | endif
-    endif
-  endfor
-  return added
+  if !here | return 0 | endif
+  call delete(link)
+  return 1
 endfunction
 
 " BufWriteCmd handler. `:w` commits the staged edits of the current index buffer
@@ -98,31 +85,39 @@ function! mail#actions#write() abort
       if tab > 0 | let buf_state[l[:tab - 1]] = l[tab + 1] !=# 'N' | endif
     endfor
 
-    " Baseline entry gone from the buffer -> drop this label (unlink, no trash).
-    " Still present -> reconcile its read-mark to the shared canon .read.
+    " deletion
     let baseline = {}
     for entry in getbufvar(bnr, 'mail_entries', [])
       let baseline[entry.id] = 1
       if !has_key(buf_state, entry.id)
-        call mail#actions#_unlink(entry.dir)
-        let deleted += 1
-      else
-        let buf_read  = buf_state[entry.id]
-        let disk_read = filereadable(entry.dir . '/.read')
-        if buf_read && !disk_read
-          call writefile([], entry.dir . '/.read')
-        elseif !buf_read && disk_read
-          call delete(entry.dir . '/.read')
-        endif
+        let deleted += mail#actions#_label(entry.id, mail_dir, 0)
       endif
     endfor
 
-    " Buffer ids absent from the baseline are pasted from another mailbox.
-    let added += mail#actions#_add_pasted_labels(keys(buf_state), baseline, mail_dir)
+    " addition
+    for id in keys(buf_state)
+      if !has_key(baseline, id)
+        let added += mail#actions#_label(id, mail_dir, 1)
+      endif
+    endfor
+
+    " resolve read state
+    for [id, buf_read] in items(buf_state)
+      let dir = mail_dir . '/' . id
+      if getftype(dir) ==# '' | continue | endif
+      let disk_read = filereadable(dir . '/.read')
+      if buf_read && !disk_read
+        call writefile([], dir . '/.read')
+      elseif !buf_read && disk_read
+        call delete(dir . '/.read')
+      endif
+    endfor
   endfor
 
-  if deleted > 0 | echom 'Deleted ' . deleted . ' message(s)' | endif
-  if added > 0   | echom 'Linked '  . added   . ' message(s)' | endif
+  let parts = []
+  if deleted > 0 | call add(parts, 'Deleted ' . deleted) | endif
+  if added > 0   | call add(parts, 'Linked '  . added) | endif
+  if !empty(parts) | echom join(parts, ', ') . ' message(s)' | endif
 
   " Post-commit each buffer already equals disk; re-baseline WITHOUT rewriting
   " lines (no destroy-recreate, no undolevels reset) so `u` survives `:w`.
@@ -134,9 +129,9 @@ endfunction
 " Move and copy are native buffer gestures now, committed on :w:
 "   dd here + p in another mailbox buffer  = move  (source unlinked, dest linked)
 "   yy      + p                            = copy  (source kept, dest linked)
-" Both reconcile through write() -> _add_pasted_labels (the add) + an unlink
-" (the drop). There is no :M/:Move/:Copy command; `-` opens the launcher so
-" opening the destination to paste into is one keystroke.
+" Both reconcile through write() -> _label(id, dir, 1) for the paste (add) and
+" _label(id, dir, 0) for the source drop. There is no :M/:Move/:Copy command;
+" `-` opens the launcher so opening the destination to paste into is one keystroke.
 
 function! mail#actions#read(read) abort
   let targets = {}

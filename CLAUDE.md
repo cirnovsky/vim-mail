@@ -164,15 +164,17 @@ reconciles all mailboxes. It's a **single pass** per buffer, order-independent:
 delete = unlink only (no trash, no refcount), so a move can't self-trash and
 there's nothing to sequence.
 
-Per buffer, diffing its lines against its `b:mail_entries` baseline:
-- **Line missing** → drop this mailbox's label: `_unlink` the symlink, full stop.
-  A last-label delete leaves the canon **orphaned in `.store` (bytes kept)**. The
-  plugin **never** destroys canonical bytes on delete: no `rm`/`rf` of a canon,
-  and never `delete(...,'rf')` on a symlink (that rf's through into the store) —
-  flagless `delete()` unlinks safely.
+Per buffer, diffing its lines against its `b:mail_entries` baseline. Both
+directions go through one primitive, `_label(id, mbox_dir, on)` — set message
+`id`'s membership in mailbox `mbox_dir` (`on=1` link, `on=0` unlink):
+- **Line missing** → drop this mailbox's label: `_label(id, dir, 0)`, an unlink,
+  full stop. A last-label delete leaves the canon **orphaned in `.store` (bytes
+  kept)**. The plugin **never** destroys canonical bytes on delete: no `rm`/`rf`
+  of a canon, and never `delete(...,'rf')` on a symlink (that rf's through into
+  the store) — flagless `delete()` unlinks safely.
 - **Line present but not in the baseline** → a line pasted from another mailbox
-  (native `dd`+`p` / `yy`+`p`): `_add_pasted_labels` links it here (`ln -s` into
-  the existing `.store` canon). An id that resolves to no canon is ignored.
+  (native `dd`+`p` / `yy`+`p`): `_label(id, dir, 1)` links it here (`ln -s` into
+  the existing `.store` canon). An id that resolves to no canon is a no-op.
 - **Read indicator differs** → `.read` written/deleted (via the symlink → the
   shared canonical `.read`).
 
@@ -267,19 +269,22 @@ Scans buffer for the line whose ID matches `b:mail_entries[idx].id`, updates
 that line directly. O(n) scan but only called once per message open.
 
 **Content store & link operations (`mail#actions#*`)**
-- `_store_root()` = `<mail_root>/.store`. `_make_link(id, dest)` shells out to
-  `ln -s ../.store/<id> dest/<id>` (Vim has no native `symlink()`). `_unlink(dir)`
-  = flagless `delete()` — unlinks a symlink, never rf's through it.
-- `getftype(target) !=# ''` = "a label already exists here" (skip the link).
-  Labels are always store symlinks (`getftype == 'link'`); the plugin does not
+- `_store_root()` = `<mail_root>/.store`. **One primitive, `_label(id, mbox_dir,
+  on)`** — set message `id`'s membership in `mbox_dir`. `on=1` links
+  (`ln -s ../.store/<id> mbox_dir/<id>`; Vim has no native `symlink()`); `on=0`
+  unlinks (flagless `delete()` — removes the symlink, never rf's through it).
+  Returns 1 if it changed disk, 0 for a no-op (redundant add / absent-label drop).
+- `getftype(link) !=# ''` = "a label already exists here" — `_label(...,1)` skips
+  it. Labels are always store symlinks (`getftype == 'link'`); the plugin does not
   handle legacy real dirs at runtime — the store must already be content-store.
-- **No refcount / link map.** Delete just `_unlink`s a label; there's no
+- **No refcount / link map.** Delete just `_label(...,0)`s a label; there's no
   `count_others` and no L to maintain (removed with the trash-on-last-label
   logic). A last-label delete orphans the canon in `.store`.
 - There are no move/copy *functions* — move is `dd`+`p`, copy is `yy`+`p`, both
-  reconciled by `write()`: `_add_pasted_labels` (the add, `ln -s` into the canon)
-  + a plain `_unlink` (the drop). No `_guarded_targets`/`_resolve_dest`, and no
-  migrate-on-touch (`_ensure_canonical`/`_find_source` were dropped with legacy).
+  reconciled by `write()`: `_label(id, dir, 1)` for the paste (add, `ln -s` into
+  the canon) + `_label(id, dir, 0)` for the drop. No `_guarded_targets`/
+  `_resolve_dest`, and no migrate-on-touch (`_ensure_canonical`/`_find_source`
+  were dropped with legacy).
 
 **Msgid index cache**
 `mail#thread#_build_msgid_index()` scans `meta` files across all mailboxes to build

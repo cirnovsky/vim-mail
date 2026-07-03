@@ -47,9 +47,6 @@ You can actually do cool things like:
 
 - Bulk-move: `:g/pat/d A`, then `"ap` in the destination folder.
 
-A message you `s`-mark read **and** move in the same `:w` lands **unread** — the
-staged mark doesn't survive the move. Mark read after moving.
-
 ## Caveats
 
 - Clipboard `<leader>a`/`<leader>p`: macOS built-in; Linux needs

@@ -12,10 +12,9 @@
 "   check: A and C present; A shows read, C unread
 "   :w                           -> commit; the move lands on disk
 "
-" KNOWN QUIRK (asserted, not fixed): a read-mark staged in the SAME :w as a move
-" does not survive — A lands UNREAD on disk even though its buffer line showed
-" read. write() skips read-reconcile for the deleted source line and never
-" commits the pasted line's read state.
+" A read-mark staged in the SAME :w as a move survives: the pasted line carries
+" its read indicator and write() reconciles read state for pasted lines, so A
+" lands READ on disk. (test_read_move.vim is the minimal case.)
 "
 " Run:  vim -u NONE -N -es -S tests/test_g_move.vim
 
@@ -82,10 +81,10 @@ function! Test_g_move() abort
   call assert_equal('', testmail#ftype(root . '/inbox/' . c), 'C gone from inbox')
   call assert_equal('link', testmail#ftype(root . '/inbox/' . b), 'B still in inbox')
 
-  " KNOWN QUIRK: A's read-mark was staged in the same :w as the move, so it is
-  " lost — A lands unread on disk. C was never marked. Both unread.
-  call assert_false(filereadable(root . '/.store/' . a . '/.read'),
-        \ 'A unread on disk (staged read-mark lost across the move)')
+  " A's read-mark, staged in the same :w as the move, survives — the pasted line
+  " carried its read indicator. C was never marked, so it stays unread.
+  call assert_true(filereadable(root . '/.store/' . a . '/.read'),
+        \ 'A read on disk (staged read-mark survived the move)')
   call assert_false(filereadable(root . '/.store/' . c . '/.read'), 'C unread on disk')
 
   call testmail#wipe_buffers()
