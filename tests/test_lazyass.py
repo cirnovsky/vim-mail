@@ -58,6 +58,7 @@ EXPECT = {
     "icloud.com":   "icloud|smtp.mail.me.com|587|imap.mail.me.com",
     "me.com":       "icloud|smtp.mail.me.com|587|imap.mail.me.com",
     "fastmail.com": "fastmail|smtp.fastmail.com|587|imap.fastmail.com",
+    "purelymail.com": "purelymail|smtp.purelymail.com|465|imap.purelymail.com",
     "zoho.com":     "zoho|smtp.zoho.com|587|imap.zoho.com",
     "yandex.com":   "yandex|smtp.yandex.com|465|imap.yandex.com",
     "gmx.com":      "gmx|mail.gmx.com|587|imap.gmx.com",

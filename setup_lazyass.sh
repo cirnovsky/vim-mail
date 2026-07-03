@@ -63,6 +63,9 @@ set_provider() {  # $1 = lowercased email domain
     fastmail.com|fastmail.fm)
       PROVIDER=fastmail; SMTP_HOST=smtp.fastmail.com; SMTP_PORT=587; IMAP_HOST=imap.fastmail.com
       APPPW_HELP="App password: Fastmail Settings -> Privacy & Security -> App passwords (needs a paid plan for IMAP)." ;;
+    purelymail.com)
+      PROVIDER=purelymail; SMTP_HOST=smtp.purelymail.com; SMTP_PORT=465; IMAP_HOST=imap.purelymail.com
+      APPPW_HELP="Use your Purelymail password (or an app password if 2FA is on)." ;;
     zoho.com)
       PROVIDER=zoho; SMTP_HOST=smtp.zoho.com; SMTP_PORT=587; IMAP_HOST=imap.zoho.com
       APPPW_HELP="App password: Zoho Account -> Security -> App Passwords (needs 2FA + IMAP enabled)." ;;
