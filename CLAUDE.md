@@ -161,7 +161,8 @@ Each line: `<id>\t<N|space> <date>  <from>  <subject>`
 
 `BufWriteCmd` calls `mail#actions#write()`, which commits the staged edits of the
 current index buffer **and every other modified index buffer** — one `:w`
-reconciles all mailboxes. It's a **single pass** per buffer, order-independent:
+reconciles all mailboxes. Per buffer it runs three **order-independent** phases
+(drop labels, add pasted labels, reconcile read):
 delete = unlink only (no trash, no refcount), so a move can't self-trash and
 there's nothing to sequence.
 

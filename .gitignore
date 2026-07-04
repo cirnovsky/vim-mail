@@ -15,6 +15,8 @@ __pycache__/
 *.un~
 Session.vim
 tags
+# local per-clone editor config, not the plugin
+.vimrc
 
 # Editors / misc
 *~
