@@ -60,3 +60,6 @@ You can actually do cool things like:
 - `:MailGC` to sweep orphaned canons from `.store`.
 - Scale optimization · message reflow · actionable `[N]` link/attachment jumps.
 - Vim-native operator keymaps (unify `s`/`S`/`dd`) · CI clipboard testing.
+- First-fetch UX: a fresh machine (empty getmail oldmail) pulls the whole inbox
+  with no progress — add progress/count feedback, and an oldmail bootstrap or a
+  "recent N" backfill limit.
