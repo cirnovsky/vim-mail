@@ -6,7 +6,7 @@ text/html part that mirrors the plain body IN ORDER (quoted runs -> nested
 <blockquote>, user text inline), so interleaving survives and clients that
 don't style raw '>' (e.g. QQ Mail) still render a quote bar. Threading rides
 on the In-Reply-To / References headers. These tests call the REAL send_mail
-(with sendmail stubbed) — not a reimplementation — so they catch drift
+(with the SMTP transport stubbed) — not a reimplementation — so they catch drift
 between the test and the shipping code.
 
 Two classes of original:
@@ -76,7 +76,7 @@ def build_compose(headers, body):
     return hdr + '\n\n' + body
 
 def send_compose(compose_text, orig_dir=None):
-    """Invoke the real send.send_mail with sendmail/ingest stubbed,
+    """Invoke the real send.send_mail with the SMTP transport / ingest stubbed,
     and return the parsed message that WOULD have been delivered."""
     captured = {}
 

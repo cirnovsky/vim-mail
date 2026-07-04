@@ -2,16 +2,17 @@
 # vim-mail setup helper.
 #
 # The plugin itself needs no configured paths: it locates mail_store.py
-# relative to its own repo and finds python3 on PATH. The one thing that
-# lives OUTSIDE the repo is ~/.fetchmailrc, whose `mda` line must point at
-# this machine's python3 + this clone's mail_store.py + your inbox dir.
+# relative to its own repo and finds python3 on PATH. What lives OUTSIDE the
+# repo is ~/.msmtprc (send: SMTP creds) and the getmailrc (fetch), whose
+# delivery MDA must point at this machine's python3 + this clone's
+# mail_store.py + your inbox dir.
 #
 # This script prints the config tailored to where you cloned the repo, and
-# can patch an existing ~/.fetchmailrc's mda line in place (backup first).
+# can patch an existing ~/.getmail/getmailrc's MDA path in place (backup first).
 #
 # Usage:
-#   ./setup.sh              # print vimrc + fetchmailrc snippets
-#   ./setup.sh --patch      # also offer to update ~/.fetchmailrc's mda line
+#   ./setup.sh              # print vimrc + msmtprc + getmailrc snippets
+#   ./setup.sh --patch      # also offer to update ~/.getmail/getmailrc's MDA path
 
 set -eu
 
@@ -33,8 +34,6 @@ STORE="$REPO/scripts/mail_store.py"
 MAIL_ROOT="${MAIL_ROOT:-$HOME/Mail}"
 INBOX="$MAIL_ROOT/inbox"
 
-MDA="$PYTHON $STORE ingest-stdin $INBOX"
-
 cat <<EOF
 Detected:
   repo         $REPO
@@ -47,45 +46,73 @@ Plug '$REPO'
 let g:mail_root = '$MAIL_ROOT'
 let g:mail_from = 'Your Name <you@gmail.com>'
 " Optional overrides (auto-detected otherwise):
-" let g:mail_python   = '$PYTHON'
-" let g:mail_store_py = '$STORE'
+" let g:mail_python     = '$PYTHON'
+" let g:mail_store_py   = '$STORE'
+" let g:mail_getmail_rc = '~/.getmail/getmailrc'
+" let g:mail_send_cmd   = 'msmtp -t'   " or 'sendmail -t' for a local MTA
 
---- ~/.fetchmailrc (mode 600) ----------------------------------------------
-poll imap.gmail.com protocol IMAP
-    user "you@gmail.com" with password "your-app-password" is "$(id -un)" here
-    ssl
-    mda "$MDA"
+--- ~/.msmtprc (mode 600) --------------------------------------------------
+(msmtp does NOT allow trailing comments on a value line — keep # on its own line)
+defaults
+auth on
+tls on
+
+# for a 465 implicit-TLS provider: use "port 465" and "tls_starttls off"
+account gmail
+host smtp.gmail.com
+port 587
+tls_starttls on
+from you@gmail.com
+user you@gmail.com
+password your-app-password
+
+account default : gmail
+
+--- ~/.getmail/getmailrc (mode 600) ----------------------------------------
+[retriever]
+type = SimpleIMAPSSLRetriever
+server = imap.gmail.com
+username = you@gmail.com
+password = your-app-password
+
+[destination]
+type = MDA_external
+path = $PYTHON
+arguments = ("$STORE", "ingest-stdin", "$INBOX")
+
+[options]
+read_all = false
+delete = false
 EOF
 
 case "${1:-}" in
   --patch)
-    RC="$HOME/.fetchmailrc"
+    RC="$HOME/.getmail/getmailrc"
     echo
     if [ ! -f "$RC" ]; then
       echo "No $RC yet — create it from the snippet above (chmod 600)."
       exit 0
     fi
     if ! grep -q 'mail_store\.py' "$RC"; then
-      echo "$RC has no mail_store.py mda line to patch — add one from the snippet above."
+      echo "$RC has no mail_store.py MDA to patch — add one from the snippet above."
       exit 0
     fi
-    echo "Current mda line in $RC:"
-    grep -n 'mda' "$RC" | sed 's/password "[^"]*"/password "***"/g'
-    printf 'Replace its python+mail_store path with the detected ones? [y/N] '
+    echo "Current MDA in $RC:"
+    grep -nE '^[[:space:]]*(path|arguments)[[:space:]]*=' "$RC"
+    printf 'Replace its python + mail_store.py paths with the detected ones? [y/N] '
     read -r ans
     case "$ans" in
       y|Y)
         cp "$RC" "$RC.bak"
-        # Rewrite only the python3 ... mail_store.py portion of the mda command,
-        # preserving the trailing "ingest-stdin <inbox>" target already there.
-        awk -v repl="$PYTHON $STORE" '
-          /mda/ && /mail_store\.py/ {
-            sub(/[^ "]*python3[^ ]* [^ ]*mail_store\.py/, repl)
-          }
+        # Rewrite the MDA's executable (path =) and the mail_store.py argument,
+        # preserving the trailing "ingest-stdin", "<inbox>" args already there.
+        awk -v py="$PYTHON" -v store="$STORE" '
+          /^[[:space:]]*path[[:space:]]*=/ { print "path = " py; next }
+          /^[[:space:]]*arguments[[:space:]]*=/ { sub(/"[^"]*mail_store\.py"/, "\"" store "\"") }
           { print }
         ' "$RC.bak" > "$RC"
-        echo "Patched. Backup at $RC.bak. New line:"
-        grep -n 'mda' "$RC" | sed 's/password "[^"]*"/password "***"/g'
+        echo "Patched. Backup at $RC.bak. New MDA:"
+        grep -nE '^[[:space:]]*(path|arguments)[[:space:]]*=' "$RC"
         ;;
       *) echo "Left $RC unchanged." ;;
     esac

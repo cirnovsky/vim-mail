@@ -7,10 +7,10 @@ Vim-native design. Everything is a buffer. Operations on emails map to operation
 ## Deps & Setup
 
 macOS/Linux · Vim 8+ (`+job +timers +lambda +conceal`) · Python 3.9+ ·
-`postfix`  · `fetchmail` 
+`msmtp` (send) · `getmail6` (fetch)
 
-`./setup_lazyass.sh` — use at discretion, it modifies `/etc/` to set up Postfix. Linux has yet
-to be tested.
+`./setup_lazyass.sh` — use at discretion; writes `~/.msmtprc` + `~/.getmail/getmailrc`
+(user-level, no `/etc`, no sudo). Linux has yet to be tested.
 
 ## Providers
 
