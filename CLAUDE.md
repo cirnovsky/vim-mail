@@ -1,8 +1,8 @@
 # vim-mail
 
 Netrw-style Vim plugin for a mail store where a message is ONE object and
-mailboxes are labels (gmail-style). The full setup doc (Postfix relay,
-fetchmail, mail_store.py) lives at `mail-setup.md` (in this repo). This file
+mailboxes are labels (gmail-style). The full setup doc (msmtp,
+getmail, mail_store.py) lives at `mail-setup.md` (in this repo). This file
 covers only what's needed to work on the plugin itself.
 
 ## Storage format (content store + symlink labels)
@@ -63,7 +63,7 @@ autoload/mail/view.vim    reading: preview, full open, html/mime view, search
 autoload/mail/compose.vim compose, reply, forward
 autoload/mail/send.vim    assemble + send the compose buffer
 autoload/mail/attach.vim  attachments + inline images (+ clipboard)
-autoload/mail/fetch.vim   async fetchmail
+autoload/mail/fetch.vim   async getmail (always into inbox)
 ftplugin/mail-index.vim   keymaps + BufWriteCmd
 ftplugin/mail-mailboxes.vim launcher keymaps (read-only: <CR> enter, <leader>f fetch, q close)
 ftplugin/mail-compose.vim :w sends
@@ -71,8 +71,8 @@ syntax/mail-index.vim     conceals the hidden per-line message id
 scripts/mail_store.py     Python backend entry point (thin shim)
 scripts/mailstore/        backend package: htmltext/ingest/quote/images/send/cli
                           ingest.ingest_one writes .store + symlink; migrate_mbox imports an .mbox
-mail-setup.md             full backend setup doc (Postfix relay, fetchmail, store)
-setup.sh                  one-off: prints vimrc + fetchmailrc config for this clone
+mail-setup.md             full backend setup doc (msmtp, getmail, store)
+setup.sh                  one-off: prints vimrc + getmailrc config for this clone
 Makefile                  `make test` (local) / `make test-linux` (Docker)
 tests/run.sh              test runner: auto-discovers tests/test_*.{py,vim}
 tests/Dockerfile          Debian image to run the suite under Linux
@@ -135,8 +135,8 @@ branch (systemd/sudo/Gmail), the `wl-clipboard`/Wayland path, the clipboard
 cloned. `g:mail_python` defaults to `python3` on `PATH` (`exepath`), and
 `g:mail_store_py` to `<repo>/scripts/mail_store.py`; `g:mail_store_cmd` is built
 from both. All three are overridable in vimrc. The only out-of-repo path is the
-`mda` line in `~/.fetchmailrc` — run `./setup.sh` (optionally `--patch`) to
-generate/update it for the current machine.
+`MDA_external` (`path`/`arguments`) in the getmailrc — run `./setup.sh`
+(optionally `--patch`) to generate/update it for the current machine.
 
 The **mail-store root** has a single source of truth: `mail#mailbox#root()`
 returns `g:mail_root` if set, else the `s:DEFAULT_ROOT` fallback (`~/Mail`),
@@ -413,7 +413,7 @@ Compose-buffer keymaps (in `ftplugin/mail-compose.vim`): `:Attach {paths…}` /
 (inline clipboard image / image files). Screenshot data needs no extra tools on
 macOS (built-in `osascript`); Linux uses `wl-paste`/`xclip`.
 | `<leader>c` | Compose new message |
-| `<leader>f` | Fetch mail (async fetchmail; merges new mail into the index, staged edits preserved) |
+| `<leader>f` | Fetch mail (async getmail, always into inbox; merges new mail into the index, staged edits preserved) |
 | `R` | Refresh from disk (explicit — discards staged edits) |
 
 `s`/`S` act on the current line. For several at once, use `:g/pat/normal s` or a
@@ -425,7 +425,7 @@ visual range with a `:normal`.
 (inbox/sent floated to top; `.store` hidden) — `autoload/mail/mailboxlist.vim` +
 `ftplugin/mail-mailboxes.vim`, buffer `mail://[mailboxes]`, `nomodifiable` so a
 stray `dd` can't delete a whole mailbox. `<CR>` enters the mailbox under the
-cursor (its own `mail://<name>` buffer); `<leader>f` fetches (prompts, default
+cursor (its own `mail://<name>` buffer); `<leader>f` fetches (always into
 `inbox`); `-` from a mailbox returns to the list; `q` closes. `:Mail <box>` still
 opens a mailbox directly, skipping the list. It's
 a **launcher**, not single-buffer netrw: each mailbox keeps its own persistent
@@ -458,8 +458,8 @@ Check with `:echo has('job') && has('timers') && has('lambda') && has('conceal')
 
 | Tool | Used for | Installed via |
 |---|---|---|
-| `fetchmail` | Fetching mail from IMAP (`<leader>f`) | `brew install fetchmail` |
-| `sendmail` | Delivering outgoing mail (called by `mail_store.py send`) | ships with macOS Postfix |
+| `getmail` | Fetching mail from IMAP into the store (`<leader>f`, via the getmailrc MDA) | `brew install getmail6` |
+| `msmtp` | Delivering outgoing mail — SMTP direct from `~/.msmtprc` (called by `mail_store.py send` via `$MAIL_SENDMAIL`) | `brew install msmtp` |
 | `open` / `xdg-open` | Opening `body.html` in browser (`x` keymap) | macOS built-in / `xdg-utils` on Linux |
 | `python3` | Running `mail_store.py` | `brew install python` or system |
 | `osascript` (macOS) / `wl-paste` / `xclip` (Linux) | Clipboard image data + file paths for `<leader>p`/`<leader>a` | macOS built-in; `wl-clipboard` / `xclip` on Linux |
@@ -474,7 +474,7 @@ copies** (those use `x-special/gnome-copied-files`). **Windows is unsupported**
 (no clipboard code). The clipboard test skips where no image-clipboard tool exists,
 so CI green ≠ Linux verified.
 
-Postfix must be configured to relay through Gmail SMTP — see `mail-setup.md` §1.
+msmtp must be configured (`~/.msmtprc`) to reach Gmail SMTP — see `mail-setup.md` §1.
 
 ## vimrc
 
@@ -490,10 +490,9 @@ let g:mail_from = 'Your Name <youraddress@gmail.com>'
 
 ## Mailbox prompts
 
-Mailbox names come from: `mail#fetch#fetch()` (`<leader>f`, via
-`mail#mailbox#_prompt_mailbox`); `:Mail <box>` (command completion); and the
-launcher `<CR>` (the current line). Move/copy no longer prompt (they're `dd`+`p`
-/ `yy`+`p`).
+Mailbox names come from: `:Mail <box>` (command completion) and the launcher
+`<CR>` (the current line). Fetch no longer prompts (always into `inbox`);
+move/copy no longer prompt (they're `dd`+`p` / `yy`+`p`).
 
 `_complete_mailbox` globs `g:mail_root/*` and skips `.store` (dot-prefixed), so it
 never offers the content store as a mailbox.

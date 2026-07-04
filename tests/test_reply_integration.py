@@ -1,7 +1,7 @@
 """
 End-to-end reply + forward test on the REAL complex message
 (tests/fixtures/embrace-the-chaos/raw.eml): CLI ingest -> a real headless vim
-opens it and replies (top-post) / forwards -> CLI send (sendmail faked) -> CLI
+opens it and replies (top-post) / forwards -> CLI send (msmtp faked) -> CLI
 ingest into the sent box -> assert each sent message meets requirements.
 
 Exercises the whole pipeline together: mailstore ingestion, mail#compose#reply quote
@@ -62,11 +62,11 @@ try:
     msg_dirs = [d for d in inbox.iterdir() if d.is_dir()]
     ok('one message ingested', len(msg_dirs) == 1, str(msg_dirs))
 
-    # 2. Fake sendmail on PATH: capture stdin, exit 0.
+    # 2. Fake msmtp on PATH (send.py's default transport): capture stdin, exit 0.
     bindir = STORE / 'bin'
     bindir.mkdir()
     capture = STORE / 'sent_bytes.eml'
-    fake = bindir / 'sendmail'
+    fake = bindir / 'msmtp'
     fake.write_text('#!/bin/sh\ncat > "$SENDMAIL_CAPTURE"\n')
     fake.chmod(0o755)
 
@@ -87,6 +87,7 @@ try
   call mail#compose#reply()
   call setline(line('.'), 'Top posted reply.')
   call mail#send#send()
+  call mail#send#_await()
   call writefile(['OK'], '{status}')
 catch
   call writefile(['ERR: ' . v:exception . ' @ ' . v:throwpoint], '{status}')
@@ -164,6 +165,7 @@ try
   call {call}
   call setline(line('.'), 'Forwarding this.')
   call mail#send#send()
+  call mail#send#_await()
   call writefile(['OK'], '{st}')
 catch
   call writefile(['ERR: ' . v:exception . ' @ ' . v:throwpoint], '{st}')
@@ -231,6 +233,7 @@ try
   call setline(2, 'Subject: with attachment')
   call mail#attach#attach('{probe}')
   call mail#send#send()
+  call mail#send#_await()
   call writefile(['OK'], '{cstatus}')
 catch
   call writefile(['ERR: ' . v:exception . ' @ ' . v:throwpoint], '{cstatus}')

@@ -2,13 +2,13 @@
 # vim-mail one-shot setup (macOS + Linux) — any account+password mail provider.
 #
 # Give it an email; it detects the provider (Gmail, Yahoo, iCloud, Fastmail,
-# Purelymail, Zoho, Yandex, GMX, QQ, 163/126, …), configures the Postfix relay to
-# that provider's SMTP in /etc (backups, idempotent), writes ~/.fetchmailrc
-# pointed at its IMAP, creates the store, and verifies the login. You provide the
-# email, an app password (or authorization code), and your sudo password (for
-# /etc). Unknown providers: it asks for the IMAP/SMTP hosts.
+# Purelymail, Zoho, Yandex, GMX, QQ, 163/126, …), writes ~/.msmtprc pointed at
+# its SMTP (send) and ~/.getmail/getmailrc pointed at its IMAP (fetch), creates
+# the store, and verifies the login. All user-level — no /etc, no sudo. You
+# provide the email and an app password (or authorization code). Unknown
+# providers: it asks for the IMAP/SMTP hosts.
 #
-# It does NOT install dependencies — postfix, fetchmail, python3 must already be
+# It does NOT install dependencies — msmtp, getmail, python3 must already be
 # present (see README "Needs"). It errors out listing anything missing.
 #
 # Works with any provider that still allows app-password / basic auth over
@@ -16,12 +16,11 @@
 # Workspace custom domains) are NOT handled here — use the 'multi-account-oauth'
 # branch (getmail + msmtp + OAuth) for those.
 #
-# ⚠  PRECAUTION — a convenience installer, NOT a magic button. It edits system
-#   files: appends to /etc/postfix/main.cf, writes /etc/postfix/sasl_passwd,
-#   (re)starts Postfix, writes ~/.fetchmailrc. It backs up what it changes to
-#   *.vimmail.<timestamp>.bak, but it's best-effort — READ IT, and treat it as an
-#   automated version of mail-setup.md. macOS is tested; the Linux path is
-#   written but UNTESTED.
+# ⚠  PRECAUTION — a convenience installer, NOT a magic button. It writes
+#   ~/.msmtprc and ~/.getmail/getmailrc (both with your password, mode 600),
+#   backing up any existing ones to *.vimmail.<timestamp>.bak — best-effort, so
+#   READ IT, and treat it as an automated version of mail-setup.md. macOS is
+#   tested; the Linux path is written but UNTESTED.
 #
 # Usage:  ./setup_lazyass.sh
 
@@ -100,8 +99,8 @@ set_provider() {  # $1 = lowercased email domain
 
 # --- precaution / confirm ---------------------------------------------------
 warn "This will:"
-warn "  edit system files (/etc/postfix/main.cf + sasl_passwd);"
-warn "  (re)start Postfix, and write ~/.fetchmailrc."
+warn "  write ~/.msmtprc (send) and ~/.getmail/getmailrc (fetch) — user-level,"
+warn "  no /etc, no sudo."
 warn "Changes are backed up to *.vimmail.*.bak"
 warn "Use it at your own discretion. You have been warned."
 [ "$OS" = "Linux" ] && warn "NOTE: the Linux path is UNTESTED. Verify each step or follow mail-setup.md by hand."
@@ -129,83 +128,75 @@ DEFAULT_ROOT="$HOME/Mail"
 printf 'Mail store path [%s]: ' "$DEFAULT_ROOT"; read -r MAIL_ROOT
 MAIL_ROOT=${MAIL_ROOT:-$DEFAULT_ROOT}
 case $MAIL_ROOT in "~") MAIL_ROOT=$HOME ;; "~/"*) MAIL_ROOT=$HOME/${MAIL_ROOT#"~/"} ;; esac
-USER_NAME=$(id -un)
 
 # --- required tools (this script does NOT install them; see README "Needs") --
 MISSING=""
 command -v python3   >/dev/null 2>&1 || MISSING="$MISSING python3"
-command -v fetchmail >/dev/null 2>&1 || MISSING="$MISSING fetchmail"
-command -v postfix   >/dev/null 2>&1 || MISSING="$MISSING postfix"
+command -v getmail   >/dev/null 2>&1 || MISSING="$MISSING getmail"
+command -v msmtp     >/dev/null 2>&1 || MISSING="$MISSING msmtp"
 [ -n "$MISSING" ] && die "Missing:$MISSING. Install them (see README 'Needs'), then re-run."
 PYTHON=$(command -v python3)
 say "Using python3: $PYTHON"
 
-say "Caching sudo (needed to write /etc/postfix)…"
-sudo -v
-
-# --- Postfix relay (/etc) ---------------------------------------------------
-MAIN_CF=/etc/postfix/main.cf
-SASL=/etc/postfix/sasl_passwd
 STAMP=$(date +%Y%m%d%H%M%S 2>/dev/null || echo backup)
 
+# --- TLS CA bundle (msmtp verifies the SMTP server against it) --------------
 CAFILE=""
 for c in /etc/ssl/cert.pem /etc/ssl/certs/ca-certificates.crt /etc/pki/tls/certs/ca-bundle.crt; do
   [ -f "$c" ] && { CAFILE=$c; break; }
 done
-[ -n "$CAFILE" ] || die "No TLS CA bundle found in the usual paths; set smtp_tls_CAfile manually in $MAIN_CF."
+[ -n "$CAFILE" ] || die "No TLS CA bundle found in the usual paths; set tls_trust_file manually in ~/.msmtprc."
 say "Using CA bundle: $CAFILE"
 
-[ -f "$MAIN_CF" ] || die "$MAIN_CF not found — is Postfix installed? Install it, then re-run."
-if sudo grep -q "^relayhost = \[$SMTP_HOST\]:$SMTP_PORT" "$MAIN_CF" 2>/dev/null; then
-  say "main.cf already relays to $SMTP_HOST:$SMTP_PORT — leaving it."
-else
-  say "Backing up $MAIN_CF and appending the relay block…"
-  sudo cp "$MAIN_CF" "$MAIN_CF.vimmail.$STAMP.bak"
-  # Port 465 is implicit TLS (SMTPS) — Postfix needs wrappermode; 587 is STARTTLS.
-  WRAP=""
-  [ "$SMTP_PORT" = 465 ] && WRAP="smtp_tls_wrappermode = yes"
-  sudo tee -a "$MAIN_CF" >/dev/null <<CF
+# --- msmtp send config (~/.msmtprc, user-level — no /etc, no sudo) ----------
+MSMTPRC="$HOME/.msmtprc"
+[ -f "$MSMTPRC" ] && { say "Backing up existing $MSMTPRC…"; cp "$MSMTPRC" "$MSMTPRC.vimmail.$STAMP.bak"; }
+say "Writing $MSMTPRC (600)…"
+STARTTLS=on
+[ "$SMTP_PORT" = 465 ] && STARTTLS=off   # 465 = implicit TLS (SMTPS), no STARTTLS
+umask 077
+cat > "$MSMTPRC" <<MSEOF
+defaults
+auth on
+tls on
+tls_trust_file $CAFILE
 
-# --- added by vim-mail setup_lazyass.sh ($PROVIDER) ---
-relayhost = [$SMTP_HOST]:$SMTP_PORT
-smtp_sasl_auth_enable = yes
-smtp_sasl_password_maps = hash:/etc/postfix/sasl_passwd
-smtp_sasl_security_options = noanonymous
-smtp_tls_security_level = encrypt
-smtp_tls_CAfile = $CAFILE
-inet_protocols = ipv4
-smtp_sasl_mechanism_filter = plain, login
-$WRAP
-CF
-fi
+account $PROVIDER
+host $SMTP_HOST
+port $SMTP_PORT
+tls_starttls $STARTTLS
+from $EMAIL
+user $EMAIL
+password $APPPW
 
-say "Writing $SASL (root, 600) and compiling…"
-printf '[%s]:%s\t%s:%s\n' "$SMTP_HOST" "$SMTP_PORT" "$EMAIL" "$APPPW" | sudo tee "$SASL" >/dev/null
-sudo chmod 600 "$SASL"
-sudo postmap "$SASL"
+account default : $PROVIDER
+MSEOF
+chmod 600 "$MSMTPRC"
 
-say "Starting/reloading Postfix…"
-if command -v systemctl >/dev/null 2>&1; then
-  sudo systemctl enable --now postfix
-  sudo systemctl reload postfix 2>/dev/null || sudo systemctl restart postfix
-else
-  sudo postfix start 2>/dev/null || true      # macOS won't auto-start it
-  sudo postfix reload 2>/dev/null || sudo postfix start
-fi
-
-# --- mail store + ~/.fetchmailrc -------------------------------------------
+# --- mail store + ~/.getmail/getmailrc -------------------------------------
 say "Creating store at $MAIL_ROOT (inbox, sent)…"
 mkdir -p "$MAIL_ROOT/inbox" "$MAIL_ROOT/sent"
 
-RC="$HOME/.fetchmailrc"
+mkdir -p "$HOME/.getmail"
+RC="$HOME/.getmail/getmailrc"
 [ -f "$RC" ] && { say "Backing up existing $RC…"; cp "$RC" "$RC.vimmail.$STAMP.bak"; }
 say "Writing $RC (600)…"
 umask 077
 cat > "$RC" <<RCEOF
-poll $IMAP_HOST protocol IMAP
-    user "$EMAIL" with password "$APPPW" is "$USER_NAME" here
-    ssl
-    mda "$PYTHON $REPO/scripts/mail_store.py ingest-stdin $MAIL_ROOT/inbox"
+[retriever]
+type = SimpleIMAPSSLRetriever
+server = $IMAP_HOST
+username = $EMAIL
+password = $APPPW
+
+[destination]
+type = MDA_external
+path = $PYTHON
+arguments = ("$REPO/scripts/mail_store.py", "ingest-stdin", "$MAIL_ROOT/inbox")
+
+[options]
+read_all = false
+delete = false
 RCEOF
 chmod 600 "$RC"
 

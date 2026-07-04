@@ -1,4 +1,5 @@
-"""Build a MIME message from a compose file and deliver via sendmail -t."""
+"""Build a MIME message from a compose file and deliver via msmtp -t (or any
+sendmail-compatible $MAIL_SENDMAIL)."""
 
 import email
 import html as html_module
@@ -19,7 +20,8 @@ def send_mail(
     orig_dir: Optional[Path] = None,
     sent_dir: Optional[Path] = None,
 ) -> None:
-    """Build a plain-text email from a compose file and deliver via sendmail -t.
+    """Build a plain-text email from a compose file and deliver via msmtp -t
+    (or any sendmail-compatible command in $MAIL_SENDMAIL).
 
     compose_path format (same as the Vim compose buffer written to disk):
         Header: value
@@ -94,7 +96,7 @@ def send_mail(
         else:
             msg[key] = val
 
-    # Generated here (not left to Postfix) so the locally-ingested sent copy
+    # Generated here (not left to the MTA) so the locally-ingested sent copy
     # carries the same Message-ID that goes out on the wire — otherwise a
     # reply's In-Reply-To has nothing in the local store to thread against.
     msg["Message-ID"] = make_msgid()
@@ -226,7 +228,14 @@ def send_mail(
             msg.add_attachment(orig_msg, filename=f"{fname}.eml".strip())
 
     msg_bytes = msg.as_bytes()
-    proc = subprocess.run(["sendmail", "-t"], input=msg_bytes, capture_output=True)
+    # Transport is a sendmail-compatible command taken from $MAIL_SENDMAIL, so the
+    # caller can route it (per identity, or back to sendmail); default 'msmtp -t'.
+    # msmtp speaks SMTP directly from ~/.msmtprc — no local MTA/Postfix. '-t' reads
+    # the recipients from the To/Cc/Bcc headers.
+    import os
+    import shlex
+    transport = shlex.split(os.environ.get("MAIL_SENDMAIL", "msmtp -t"))
+    proc = subprocess.run(transport, input=msg_bytes, capture_output=True)
     if proc.returncode != 0:
         raise RuntimeError(proc.stderr.decode("utf-8", errors="replace").strip())
     if sent_dir is not None:

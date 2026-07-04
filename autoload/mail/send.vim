@@ -1,6 +1,8 @@
 " Assembling and sending the compose buffer.
 " Part of vim-mail; the frontend never parses MIME (that's mail_store.py).
 
+let s:send_job = v:null
+
 " Inline images referenced by surviving '[img id]' markers in the body:
 " returns [[id, path], …] for entries registered as inline.
 function! mail#send#_inline_images(body_lines) abort
@@ -111,16 +113,54 @@ function! mail#send#send() abort
   let orig_arg = exists('b:mail_compose_orig_dir')
         \ ? ' ' . shellescape(b:mail_compose_orig_dir) : ' ""'
   let sent_dir = mail#mailbox#root() . '/sent'
-  let result   = system(py_cmd . ' send ' . shellescape(tmpfile)
-        \ . orig_arg . ' ' . shellescape(sent_dir))
-  call delete(tmpfile)
-  if v:shell_error != 0
-    echoerr 'Send failed: ' . result
-    return
-  endif
-  setlocal nomodified
+  " Send transport: mail_store.py send reads $MAIL_SENDMAIL (default 'msmtp -t').
+  let $MAIL_SENDMAIL = get(g:, 'mail_send_cmd', 'msmtp -t')
+
+  " Recipient for the completion message — resolved now, since the buffer may be
+  " edited or gone by the time the async job finishes.
   let to_hdr = filter(copy(user_hdrs), 'v:val =~? "^To:"')
   let to = empty(to_hdr) ? b:mail_compose_to
         \ : substitute(to_hdr[0], '^To:\s*', '', '')
-  echo 'Sent to ' . to
+
+  " Send ASYNC. msmtp does the whole SMTP round-trip synchronously (DNS/TLS/auth/
+  " upload) — under system() that froze Vim for seconds; job_start hands it off
+  " like fetch. The :w completes immediately (buffer marked unmodified); the exit
+  " callback echoes 'Sent'/'Send FAILED' when delivery finishes. Output is captured
+  " to a file so a failure can be reported. Runs via /bin/sh for the redirect.
+  let outfile = tempname()
+  let cmd = py_cmd . ' send ' . shellescape(tmpfile) . orig_arg . ' '
+        \ . shellescape(sent_dir) . ' >' . shellescape(outfile) . ' 2>&1'
+  let ctx = {'tmpfile': tmpfile, 'outfile': outfile, 'to': to}
+  echo 'Sending to ' . to . ' ...'
+  let s:send_job = job_start(['/bin/sh', '-c', cmd],
+        \ {'exit_cb': function('mail#send#_send_exit_cb', [ctx])})
+  setlocal nomodified
+endfunction
+
+" Async send completion: echo the result and clean up the temp files. Bound as a
+" partial to the per-send context {tmpfile, outfile, to}.
+function! mail#send#_send_exit_cb(ctx, job, status) abort
+  let lines = filereadable(a:ctx.outfile)
+        \ ? filter(readfile(a:ctx.outfile), 'v:val !~# "^\\s*$"') : []
+  call delete(a:ctx.tmpfile)
+  call delete(a:ctx.outfile)
+  if a:status == 0
+    echom 'Sent to ' . a:ctx.to
+  else
+    echohl ErrorMsg
+    echom 'Send FAILED (' . a:ctx.to . '): '
+          \ . (empty(lines) ? 'exit ' . a:status : lines[-1])
+    echohl None
+  endif
+endfunction
+
+" Block until the current async send finishes (used by the integration test; also
+" handy for scripting a synchronous send). Bounded by a timeout in ms.
+function! mail#send#_await(...) abort
+  let timeout = a:0 ? a:1 : 20000
+  let waited = 0
+  while s:send_job isnot v:null && job_status(s:send_job) ==# 'run' && waited < timeout
+    sleep 20m
+    let waited += 20
+  endwhile
 endfunction
