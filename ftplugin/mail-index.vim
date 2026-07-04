@@ -31,7 +31,6 @@ nnoremap <buffer> <silent> R           :call mail#index#refresh()<CR>
 nnoremap <buffer> <silent> <leader>s   :call mail#view#search()<CR>
 nnoremap <buffer> <silent> <leader>c   :call mail#compose#compose()<CR>
 nnoremap <buffer> <silent> <leader>f   :call mail#fetch#fetch()<CR>
-nnoremap <buffer> <silent> q    :bwipeout<CR>
 
 nnoremap <buffer> <silent> s  :call mail#actions#read(1)<CR>
 nnoremap <buffer> <silent> S  :call mail#actions#read(0)<CR>

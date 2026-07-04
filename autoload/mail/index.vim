@@ -55,6 +55,32 @@ function! mail#index#open(dir) abort
   endif
 endfunction
 
+" Eagerly create + render an index buffer for EVERY mailbox under the root, so
+" each mailbox buffer is live from startup: staged fetch always has a buffer to
+" stage into, and cross-mailbox :w and dd+p/yy+p paste always find every endpoint
+" loaded. Reuses open()'s render path per mailbox — each enew hides the previous
+" buffer but keeps it loaded (bufhidden=hide) — then restores the starting view.
+" Idempotent: already-loaded mailboxes are skipped, so repeat :Mail calls only
+" pay for newly-appeared mailboxes. One meta read per message, once.
+function! mail#index#preload_all() abort
+  let start   = bufnr('%')
+  let save_lz = &lazyredraw
+  set lazyredraw
+  try
+    for name in mail#mailboxlist#_mailboxes()
+      let dir = mail#mailbox#_resolve_mailbox(name)
+      let nr  = get(s:index_bufnrs, dir, -1)
+      if nr > 0 && bufexists(nr) && getbufvar(nr, 'mail_dir', '') ==# dir
+        continue                                       " already loaded
+      endif
+      call mail#index#open(name)
+    endfor
+  finally
+    if bufexists(start) | execute 'buffer ' . start | endif
+    let &lazyredraw = save_lz
+  endtry
+endfunction
+
 " Insert mail that appeared on disk (e.g. a background fetch) but is in neither
 " this buffer's baseline nor its current lines, in newest-first order, WITHOUT
 " touching existing lines — so staged edits (reads, deletes, pastes) survive

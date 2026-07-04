@@ -53,7 +53,7 @@ never parses MIME itself.
 
 ```
 plugin/mail.vim           :Mail (-> launcher / a mailbox) + g:mail_* setup
-autoload/mail/mailboxlist.vim read-only mailbox launcher (:Mail list, <CR>/- navigation)
+autoload/mail/mailboxlist.vim read-only mailbox launcher (:Mail list, <CR>/- navigation; preloads all mailbox buffers)
 autoload/mail/mailbox.vim mailbox path resolution, completion, prompting
 autoload/mail/util.vim    shared helpers (py_cmd)
 autoload/mail/index.vim   index buffer: render, refresh/merge, line<->entry, cross-buffer :w helpers
@@ -87,6 +87,7 @@ tests/test_write_all.vim  one :w commits every modified index buffer
 tests/test_fetch_merge.vim fetch/nav merges new mail into a modified buffer, edits kept
 tests/test_undo.vim       undo survives :w + navigation (merge/resync, no undo clear)
 tests/test_launcher.vim   :Mail launcher: read-only list, <CR> enter, - return
+tests/test_preload.vim    :Mail preloads a live index buffer for every mailbox
 ```
 
 **Autoload namespacing.** Logic is split into `autoload/mail/<topic>.vim`, so
@@ -413,7 +414,6 @@ macOS (built-in `osascript`); Linux uses `wl-paste`/`xclip`.
 | `<leader>c` | Compose new message |
 | `<leader>f` | Fetch mail (async fetchmail; merges new mail into the index, staged edits preserved) |
 | `R` | Refresh from disk (explicit — discards staged edits) |
-| `q` | Close buffer |
 
 `s`/`S` act on the current line. For several at once, use `:g/pat/normal s` or a
 visual range with a `:normal`.
@@ -430,6 +430,16 @@ opens a mailbox directly, skipping the list. It's
 a **launcher**, not single-buffer netrw: each mailbox keeps its own persistent
 buffer, so staged edits and `dd`+`p`/`yy`+`p` moves survive navigation. `:Mail`
 dispatches through `mail#mailboxlist#mail_cmd()` (empty → list, else `index#open`).
+
+**Every mailbox buffer is preloaded at `:Mail`.** `mail_cmd()` first calls
+`mail#index#preload_all()` — it renders a hidden, live index buffer for every
+mailbox under the root (reusing `open()`'s path; each `enew` hides the previous
+but keeps it loaded via `bufhidden=hide`), then restores the view. So every
+mailbox is a live buffer from startup: cross-mailbox `:w`, `dd`+`p`/`yy`+`p`
+paste, and (future) staged fetch always find every endpoint loaded — no
+"target buffer not open" case. Idempotent (already-loaded mailboxes are skipped),
+so repeat `:Mail` calls only pay for newly-appeared mailboxes. Cost: one `meta`
+read per message, once, at first `:Mail`.
 
 ## Dependencies
 

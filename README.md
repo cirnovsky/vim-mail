@@ -34,7 +34,7 @@ directly. Inside a folder:
 | `dd` | Delete — drop this folder's label (staged) |
 | `dd`+`p` / `yy`+`p` | Move / copy: cut/yank, paste into another folder |
 | `s` / `S` | Mark read / unread (staged) |
-| `-` / `q` | Folder list / close |
+| `-` | Folder list |
 
 All changes are *staged*, and not *committed* until `:w`.
 
