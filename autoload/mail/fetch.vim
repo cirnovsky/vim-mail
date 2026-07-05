@@ -4,6 +4,28 @@
 let s:fetch_job    = v:null
 let s:fetch_dir    = ''
 let s:fetch_before = {}
+let s:fetch_done   = 0
+let s:fetch_total  = 0
+
+" Parse a getmail per-message progress line into [done, total]; [] otherwise.
+" getmail 6.x prints '  [<mailbox>] msg <N>/<M> (<bytes>) delivered' per message,
+" so we key on the 'msg N/M' token (mailbox prefix varies). This does NOT match
+" the 'N messages retrieved' summary, the retriever banner, or the version line.
+" (Verified against real getmail 6.20 output; see tests/integration/.)
+function! mail#fetch#_progress(line) abort
+  let m = matchlist(a:line, '\vmsg\s+(\d+)/(\d+)>')
+  return empty(m) ? [] : [str2nr(m[1]), str2nr(m[2])]
+endfunction
+
+" getmail streams a line per delivered message; show a live count.
+function! mail#fetch#_fetch_out_cb(ch, msg) abort
+  let p = mail#fetch#_progress(a:msg)
+  if empty(p) | return | endif
+  let s:fetch_done  = p[0]
+  let s:fetch_total = p[1]
+  redraw
+  echo 'Fetching ' . p[0] . '/' . p[1] . ' into ' . fnamemodify(s:fetch_dir, ':~') . ' ...'
+endfunction
 
 function! mail#fetch#_snapshot_dirs(dir) abort
   let result = {}
@@ -36,13 +58,19 @@ function! mail#fetch#fetch() abort
   " into a modified buffer instead of rebuilding it, so staged edits survive.
   let s:fetch_dir    = mail#mailbox#_resolve_mailbox('inbox')
   let s:fetch_before = mail#fetch#_snapshot_dirs(s:fetch_dir)
+  let s:fetch_done   = 0
+  let s:fetch_total  = 0
   let bin = get(g:, 'mail_getmail', 'getmail')
   echo 'Fetching into ' . s:fetch_dir . ' ...'
   " getmail looks up --rcfile inside --getmaildir (which also holds its per-account
-  " 'oldmail' UID state), so split the configured path into dir + basename.
+  " 'oldmail' UID state), so split the configured path into dir + basename. It
+  " streams 'N/M' per delivered message on stdout, which out_cb turns into a live
+  " count (getmail reports the total M on the first message line).
   let s:fetch_job = job_start(
         \ [bin, '--getmaildir', fnamemodify(rc, ':h'), '--rcfile', fnamemodify(rc, ':t')],
-        \ {'exit_cb': 'mail#fetch#_fetch_exit_cb'})
+        \ {'out_cb': 'mail#fetch#_fetch_out_cb',
+        \  'err_cb': 'mail#fetch#_fetch_out_cb',
+        \  'exit_cb': 'mail#fetch#_fetch_exit_cb'})
 endfunction
 
 function! mail#fetch#_fetch_exit_cb(job, status) abort
@@ -68,4 +96,23 @@ function! mail#fetch#_fetch_exit_cb(job, status) abort
   endif
 
   call mail#index#refresh_for(s:fetch_dir)
+endfunction
+
+" Block until the current fetch finishes (used by the integration test; also handy
+" for scripting). Bounded by a timeout in ms.
+function! mail#fetch#_await(...) abort
+  let timeout = a:0 ? a:1 : 60000
+  let waited = 0
+  while s:fetch_job isnot v:null && job_status(s:fetch_job) ==# 'run' && waited < timeout
+    sleep 50m
+    let waited += 50
+  endwhile
+endfunction
+
+" The M from getmail's last 'msg N/M' line on the just-finished fetch — 0 when
+" nothing was fetched. NB getmail numbers by position in the full mailbox, so M
+" is the mailbox size; it equals the fetched count only on a first/full fetch
+" (the fresh-machine case). For the integration test.
+function! mail#fetch#_last_total() abort
+  return s:fetch_total
 endfunction
