@@ -34,9 +34,15 @@ directly. Inside a folder:
 | `dd` | Delete — drop this folder's label (staged) |
 | `dd`+`p` / `yy`+`p` | Move / copy: cut/yank, paste into another folder |
 | `s` / `S` | Mark read / unread (staged) |
-| `-` | Folder list |
+| `-` | Folder list (incl. `TRASH`) |
 
 All changes are *staged*, and not *committed* until `:w`.
+
+**Recovering deleted mail.** `dd` just drops a folder label — no trash box, undo
+intact. But delete the *last* label and the message is fully removed; those show
+up in **`TRASH`** (a read-only entry in the folder list). To get one back, open
+`TRASH`, `yy` the line, and `p` it into any folder. `TRASH` keeps no memory of
+where a message used to live, and never auto-empties.
 
 Compose (`r`/`f`/`<leader>c`) sends on `:w`. `:Attach`/`<leader>A` = file,
 `<leader>a` = clipboard file, `<leader>p` = clipboard image.
