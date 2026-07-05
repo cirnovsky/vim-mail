@@ -63,7 +63,7 @@ autoload/mail/view.vim    reading: preview, full open, html/mime view, search
 autoload/mail/compose.vim compose, reply, forward
 autoload/mail/send.vim    assemble + send the compose buffer
 autoload/mail/attach.vim  attachments + inline images (+ clipboard)
-autoload/mail/fetch.vim   async getmail (always into inbox)
+autoload/mail/fetch.vim   async getmail (always into inbox); live N/M progress from getmail output
 ftplugin/mail-index.vim   keymaps + BufWriteCmd
 ftplugin/mail-mailboxes.vim launcher keymaps (read-only: <CR> enter, <leader>f fetch, <leader>c compose, q close)
 ftplugin/mail-compose.vim :w sends
@@ -73,8 +73,9 @@ scripts/mailstore/        backend package: htmltext/ingest/quote/images/send/cli
                           ingest.ingest_one writes .store + symlink; migrate_mbox imports an .mbox
 mail-setup.md             full backend setup doc (msmtp, getmail, store)
 setup.sh                  one-off: prints vimrc + getmailrc config for this clone
-Makefile                  `make test` (local) / `make test-linux` (Docker)
+Makefile                  `make test` (local) / `make test-linux` (Docker) / `make test-integration` (GreenMail)
 tests/run.sh              test runner: auto-discovers tests/test_*.{py,vim}
+tests/integration/        non-hermetic integration tests (real GreenMail + getmail); `make test-integration`
 tests/Dockerfile          Debian image to run the suite under Linux
 tests/fixtures/mail/      .eml corpus (plain/html/multipart/attachment/thread-*) — real messages
 tests/testlib/autoload/testmail.vim  shared generator: build a store from .eml via the real engine
@@ -88,6 +89,7 @@ tests/test_fetch_merge.vim fetch/nav merges new mail into a modified buffer, edi
 tests/test_undo.vim       undo survives :w + navigation (merge/resync, no undo clear)
 tests/test_launcher.vim   :Mail launcher: read-only list, <CR> enter, - return
 tests/test_preload.vim    :Mail preloads a live index buffer for every mailbox
+tests/test_fetch_progress.vim  parses getmail N/M output into live fetch progress
 ```
 
 **Autoload namespacing.** Logic is split into `autoload/mail/<topic>.vim`, so
@@ -104,6 +106,20 @@ new suite by dropping a `test_*.py` or `test_*.vim` file in `tests/` — the
 runner picks it up automatically. Headless Vim tests use the built-in
 `assert_*` API, collect into `v:errors`, and `qall!`/`cquit!` to signal
 pass/fail via exit code.
+
+**`make test-integration`** — the non-hermetic tier, kept OUT of `make test` and its
+auto-discovery (it lives in `tests/integration/`, not `tests/`). `test_fetch_greenmail.py`
+stands up a real local **GreenMail** IMAP server (standalone jar from Maven,
+cached in the temp dir), seeds a 200-message inbox via IMAP `APPEND`, and drives
+**real getmail** through the plugin (`mail#fetch#fetch()` + `mail#fetch#_await()`),
+asserting the store count, the live-progress total (`mail#fetch#_last_total()`),
+and incremental oldmail behaviour (re-fetch pulls 0; +50 pulls them). Needs
+`java`+`getmail`+`vim`+network; self-SKIPs if any is missing. This is the only
+test that validates `mail#fetch#_progress` against *real* getmail output — the
+guessed format was wrong (real getmail 6.x prints `[<mailbox>] msg N/M`, and its
+`M` is the mailbox size, so it equals the fetched count only on a first/full
+fetch). It manages its own GreenMail lifecycle and waits for a real login (the
+IMAP port opens before auth is ready).
 
 **Fixtures come from the real engine.** Store fixtures are built from real `.eml`
 files (`tests/fixtures/mail/*.eml`) run through the actual backend — never

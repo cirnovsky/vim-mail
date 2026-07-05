@@ -16,6 +16,29 @@ jobs:
       - name: make test-linux
         run: make test-linux
 
+  # Non-hermetic integration tier: REAL getmail fetching from a local GreenMail
+  # IMAP server (see tests/integration/). Gated to main pushes only — it installs
+  # getmail, downloads the GreenMail jar, and runs a server, so it's too heavy to
+  # tax every PR. The test self-skips if a dependency is missing.
+  integration:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push'
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Install vim-nox + getmail6
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends vim-nox
+          python3 -m pip install --user getmail6
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - name: make test-integration
+        run: make test-integration
+
   # macOS: native run covering the macOS-only paths (osascript clipboard) the
   # Linux job can't exercise. Disabled for now — covered locally via `make test`,
   # and macos runners cost 10x free-tier minutes. Uncomment to enable.
