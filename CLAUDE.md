@@ -24,11 +24,12 @@ directory of **relative symlinks** into it. Membership = a label.
 
 - `<id>` (the store dir basename) is the stable per-line ID in the index buffer.
 - **copy** = another symlink, **move** = relink, **delete** = unlink. Delete just
-  drops this mailbox's symlink — **no trash, no refcount.** A last-label delete
-  leaves the canon **orphaned** in `.store` (bytes *kept*, never rm'd — a future
-  `:MailGC` frees orphans). `trash` is a normal mailbox you can file into by hand;
-  `dd` never auto-populates it. Read-state is shared: one `.store/<id>/.read` seen
-  through every label.
+  drops this mailbox's symlink — **no trash box, no refcount** (dd stays a pure
+  unlink; undo intact). A last-label delete leaves the canon **orphaned** in
+  `.store` (bytes *kept*, never rm'd). Orphans are surfaced read-only as the
+  virtual **`TRASH`** view (`autoload/mail/trash.vim`) for recovery — no orphan is
+  destroyed until a future `:MailGC` permanently frees them. Read-state is shared:
+  one `.store/<id>/.read` seen through every label.
 - `.store` and `.tmp_*`/`.linktmp_*` are dot-prefixed, so the index/mailbox
   readers (which skip `^\.`) never list them as messages.
 - Reads flow through symlinks transparently — `glob`/`isdirectory`/`readfile`
@@ -54,7 +55,7 @@ never parses MIME itself.
 ```
 plugin/mail.vim           :Mail (-> launcher / a mailbox) + g:mail_* setup
 autoload/mail/mailboxlist.vim read-only mailbox launcher (:Mail list, <CR>/- navigation; preloads all mailbox buffers)
-autoload/mail/mailbox.vim mailbox path resolution, completion, prompting
+autoload/mail/mailbox.vim mailbox path resolution, completion, prompting; ensure_defaults (inbox/sent/archive)
 autoload/mail/util.vim    shared helpers (py_cmd)
 autoload/mail/index.vim   index buffer: render, refresh/merge, line<->entry, cross-buffer :w helpers
 autoload/mail/actions.vim staged actions: marks, read/unread, delete + paste-link (:w)
@@ -64,10 +65,13 @@ autoload/mail/compose.vim compose, reply, forward
 autoload/mail/send.vim    assemble + send the compose buffer
 autoload/mail/attach.vim  attachments + inline images (+ clipboard)
 autoload/mail/fetch.vim   async getmail (always into inbox); live N/M progress from getmail output
+autoload/mail/trash.vim   virtual read-only TRASH view: orphaned (last-label-deleted) canons
 ftplugin/mail-index.vim   keymaps + BufWriteCmd
 ftplugin/mail-mailboxes.vim launcher keymaps (read-only: <CR> enter, <leader>f fetch, <leader>c compose, q close)
+ftplugin/mail-trash.vim   TRASH keymaps (read-only viewer; yy to recover; R rescan)
 ftplugin/mail-compose.vim :w sends
 syntax/mail-index.vim     conceals the hidden per-line message id
+syntax/mail-trash.vim     same id-conceal, for the TRASH buffer
 scripts/mail_store.py     Python backend entry point (thin shim)
 scripts/mailstore/        backend package: htmltext/ingest/quote/images/send/cli
                           ingest.ingest_one writes .store + symlink; migrate_mbox imports an .mbox
@@ -88,6 +92,7 @@ tests/test_write_all.vim  one :w commits every modified index buffer
 tests/test_fetch_merge.vim fetch/nav merges new mail into a modified buffer, edits kept
 tests/test_undo.vim       undo survives :w + navigation (merge/resync, no undo clear)
 tests/test_launcher.vim   :Mail launcher: read-only list, <CR> enter, - return
+tests/test_trash.vim      TRASH shows orphans; yy+paste recovers; multi-label not trashed
 tests/test_preload.vim    :Mail preloads a live index buffer for every mailbox
 tests/test_fetch_progress.vim  parses getmail N/M output into live fetch progress
 ```
@@ -415,7 +420,7 @@ read; the index stays a 1-line sliver so `:q` returns to it (no quit-Vim risk).
 | `x` | Open `body.html` in browser (inline `cid:` images shown via a temp data-URI copy) |
 | `/` | Native Vim search (From/Subject visible text) |
 | `<leader>s` | Full-text vimgrep across all `body.txt` files → quickfix |
-| `dd`, `d3j`, `:g/pat/d` | Staged delete (unlink label; last label → orphaned in `.store`, no trash) — committed on `:w` |
+| `dd`, `d3j`, `:g/pat/d` | Staged delete (unlink label; last label → orphaned in `.store`, recoverable via `TRASH`) — committed on `:w` |
 | `dd`+`p` / `yy`+`p` | Native cross-buffer move / copy (paste into another mailbox buffer; linked on `:w`) |
 | `s` | Mark current line read (staged) |
 | `S` | Mark current line unread (staged) |
@@ -438,10 +443,12 @@ visual range with a `:normal`.
 ## Mailbox launcher
 
 `:Mail` (no arg) opens a **read-only** list of all mailboxes under `g:mail_root`
-(inbox/sent floated to top; `.store` hidden) — `autoload/mail/mailboxlist.vim` +
+(inbox/sent floated to top; `.store` hidden; `TRASH` appended) —
+`autoload/mail/mailboxlist.vim` +
 `ftplugin/mail-mailboxes.vim`, buffer `mail://[mailboxes]`, `nomodifiable` so a
 stray `dd` can't delete a whole mailbox. `<CR>` enters the mailbox under the
-cursor (its own `mail://<name>` buffer); `<leader>f` fetches (always into
+cursor (its own `mail://<name>` buffer, or `mail#trash#open()` for `TRASH`);
+`<leader>f` fetches (always into
 `inbox`); `<leader>c` composes; `-` from a mailbox returns to the list; `q`
 closes. `:Mail <box>` still
 opens a mailbox directly, skipping the list. It's
@@ -449,7 +456,13 @@ a **launcher**, not single-buffer netrw: each mailbox keeps its own persistent
 buffer, so staged edits and `dd`+`p`/`yy`+`p` moves survive navigation. `:Mail`
 dispatches through `mail#mailboxlist#mail_cmd()` (empty → list, else `index#open`).
 
-**Every mailbox buffer is preloaded at `:Mail`.** `mail_cmd()` first calls
+**Default folders.** `mail_cmd()` calls `mail#mailbox#ensure_defaults()` first, so
+every `:Mail` creates `inbox`/`sent`/`archive` if missing — a fresh store is never
+an empty list. `TRASH` is **not** among them: it's the virtual `mail#trash` view,
+never a real dir (a real `TRASH` would duplicate the view and collide on a
+case-insensitive FS). Other folders still appear lazily as mail is filed into them.
+
+**Every mailbox buffer is preloaded at `:Mail`.** `mail_cmd()` then calls
 `mail#index#preload_all()` — it renders a hidden, live index buffer for every
 mailbox under the root (reusing `open()`'s path; each `enew` hides the previous
 but keeps it loaded via `bufhidden=hide`), then restores the view. So every
@@ -458,6 +471,31 @@ paste, and (future) staged fetch always find every endpoint loaded — no
 "target buffer not open" case. Idempotent (already-loaded mailboxes are skipped),
 so repeat `:Mail` calls only pay for newly-appeared mailboxes. Cost: one `meta`
 read per message, once, at first `:Mail`.
+
+## TRASH (recover deleted mail)
+
+`dd` is a pure unlink and writes nothing on delete, so there's no trash *box* —
+but a last-label delete leaves the canon **orphaned** in `.store`, and those
+orphans are recoverable. **`TRASH`** (`autoload/mail/trash.vim`, buffer
+`mail://TRASH`) is a **virtual, read-only** view of them: `mail#trash#_orphans()`
+= every `.store` canon whose id is not a symlink-name in any mailbox (a full but
+cheap scan — directory listings, no `readlink`). It is **rebuilt on every entry**
+(`R` to rescan), keeps **no memory** of where a message used to live, and is
+**not** a real dir — so it's **excluded from preload** (scanned lazily) and never
+committed on `:w` (`buftype=nofile`, `nomodifiable`; its own `filetype=mail-trash`
+ftplugin/syntax).
+
+- **Only fully-deleted messages appear** — a message still labelled by another
+  mailbox is referenced, so it's not an orphan and not in `TRASH`.
+- **Recover** = `yy` a line (native yank works read-only; it grabs the concealed
+  id) and `p` into a real mailbox buffer; the normal paste path
+  (`mail#actions#_add_pasted_labels` → `_label`) links the orphan canon back in,
+  and it leaves `TRASH` on the next scan. Recovery is **re-file anywhere**, not
+  restore-to-origin.
+- Read/reply/forward work in `TRASH` (each entry's `dir` is the canon
+  `.store/<id>`, and view/compose read `b:mail_entries[idx].dir`).
+- Orphans live **forever** until a future `:MailGC` permanently frees them (there
+  is no auto-expiry; not yet built).
 
 ## Dependencies
 

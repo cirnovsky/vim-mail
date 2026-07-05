@@ -45,7 +45,9 @@ function! mail#mailboxlist#open() abort
 endfunction
 
 function! mail#mailboxlist#render() abort
-  let names = mail#mailboxlist#_mailboxes()
+  " TRASH is a virtual read-only view (mail#trash), not a real dir — appended
+  " here, never in _mailboxes() (so preload/completion never treat it as one).
+  let names = mail#mailboxlist#_mailboxes() + ['TRASH']
   setlocal modifiable
   silent! 1,$delete _
   if !empty(names)
@@ -58,11 +60,20 @@ endfunction
 function! mail#mailboxlist#enter() abort
   let name = trim(getline('.'))
   if name ==# '' | return | endif
-  call mail#index#open(name)
+  if name ==# 'TRASH'
+    call mail#trash#open()
+  else
+    call mail#index#open(name)
+  endif
 endfunction
 
 " `:Mail` dispatch: no arg -> the launcher; a name -> that mailbox directly.
 function! mail#mailboxlist#mail_cmd(name) abort
+  call mail#mailbox#ensure_defaults()    " inbox/sent/archive exist on first :Mail
+  if a:name ==# 'TRASH'
+    call mail#trash#open()
+    return
+  endif
   call mail#index#preload_all()          " every mailbox buffer live from startup
   if a:name ==# ''
     call mail#mailboxlist#open()
