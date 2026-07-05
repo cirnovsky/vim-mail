@@ -65,7 +65,7 @@ autoload/mail/send.vim    assemble + send the compose buffer
 autoload/mail/attach.vim  attachments + inline images (+ clipboard)
 autoload/mail/fetch.vim   async getmail (always into inbox)
 ftplugin/mail-index.vim   keymaps + BufWriteCmd
-ftplugin/mail-mailboxes.vim launcher keymaps (read-only: <CR> enter, <leader>f fetch, q close)
+ftplugin/mail-mailboxes.vim launcher keymaps (read-only: <CR> enter, <leader>f fetch, <leader>c compose, q close)
 ftplugin/mail-compose.vim :w sends
 syntax/mail-index.vim     conceals the hidden per-line message id
 scripts/mail_store.py     Python backend entry point (thin shim)
@@ -426,7 +426,8 @@ visual range with a `:normal`.
 `ftplugin/mail-mailboxes.vim`, buffer `mail://[mailboxes]`, `nomodifiable` so a
 stray `dd` can't delete a whole mailbox. `<CR>` enters the mailbox under the
 cursor (its own `mail://<name>` buffer); `<leader>f` fetches (always into
-`inbox`); `-` from a mailbox returns to the list; `q` closes. `:Mail <box>` still
+`inbox`); `<leader>c` composes; `-` from a mailbox returns to the list; `q`
+closes. `:Mail <box>` still
 opens a mailbox directly, skipping the list. It's
 a **launcher**, not single-buffer netrw: each mailbox keeps its own persistent
 buffer, so staged edits and `dd`+`p`/`yy`+`p` moves survive navigation. `:Mail`
