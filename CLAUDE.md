@@ -55,7 +55,7 @@ never parses MIME itself.
 ```
 plugin/mail.vim           :Mail (-> launcher / a mailbox) + g:mail_* setup
 autoload/mail/mailboxlist.vim read-only mailbox launcher (:Mail list, <CR>/- navigation; preloads all mailbox buffers)
-autoload/mail/mailbox.vim mailbox path resolution, completion, prompting
+autoload/mail/mailbox.vim mailbox path resolution, completion, prompting; ensure_defaults (inbox/sent/archive)
 autoload/mail/util.vim    shared helpers (py_cmd)
 autoload/mail/index.vim   index buffer: render, refresh/merge, line<->entry, cross-buffer :w helpers
 autoload/mail/actions.vim staged actions: marks, read/unread, delete + paste-link (:w)
@@ -456,7 +456,13 @@ a **launcher**, not single-buffer netrw: each mailbox keeps its own persistent
 buffer, so staged edits and `dd`+`p`/`yy`+`p` moves survive navigation. `:Mail`
 dispatches through `mail#mailboxlist#mail_cmd()` (empty → list, else `index#open`).
 
-**Every mailbox buffer is preloaded at `:Mail`.** `mail_cmd()` first calls
+**Default folders.** `mail_cmd()` calls `mail#mailbox#ensure_defaults()` first, so
+every `:Mail` creates `inbox`/`sent`/`archive` if missing — a fresh store is never
+an empty list. `TRASH` is **not** among them: it's the virtual `mail#trash` view,
+never a real dir (a real `TRASH` would duplicate the view and collide on a
+case-insensitive FS). Other folders still appear lazily as mail is filed into them.
+
+**Every mailbox buffer is preloaded at `:Mail`.** `mail_cmd()` then calls
 `mail#index#preload_all()` — it renders a hidden, live index buffer for every
 mailbox under the root (reusing `open()`'s path; each `enew` hides the previous
 but keeps it loaded via `bufhidden=hide`), then restores the view. So every

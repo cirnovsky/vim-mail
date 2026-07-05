@@ -49,9 +49,27 @@ function! Test_launcher() abort
   call delete(root, 'rf')
 endfunction
 
+" A fresh :Mail creates the default folders (inbox/sent/archive) so the launcher
+" isn't empty; TRASH stays virtual (never a real dir) but is listed.
+function! Test_default_mailboxes() abort
+  let root = tempname() . '/Mail'
+  let g:mail_root = root
+  Mail
+  for name in ['inbox', 'sent', 'archive']
+    call assert_true(isdirectory(root . '/' . name), name . ' created on :Mail')
+  endfor
+  call assert_false(isdirectory(root . '/TRASH'), 'TRASH is virtual, not a real dir')
+  let lines = getline(1, '$')
+  for name in ['inbox', 'sent', 'archive', 'TRASH']
+    call assert_notequal(-1, index(lines, name), 'launcher lists ' . name)
+  endfor
+  call testmail#wipe_buffers()
+  call delete(root, 'rf')
+endfunction
+
 " --- runner ---
 let v:errors = []
-let s:tests = ['Test_launcher']
+let s:tests = ['Test_launcher', 'Test_default_mailboxes']
 for s:t in s:tests
   try
     call call(s:t, [])

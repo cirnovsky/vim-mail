@@ -69,6 +69,7 @@ endfunction
 
 " `:Mail` dispatch: no arg -> the launcher; a name -> that mailbox directly.
 function! mail#mailboxlist#mail_cmd(name) abort
+  call mail#mailbox#ensure_defaults()    " inbox/sent/archive exist on first :Mail
   if a:name ==# 'TRASH'
     call mail#trash#open()
     return

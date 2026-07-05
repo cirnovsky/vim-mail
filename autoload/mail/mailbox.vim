@@ -19,6 +19,21 @@ function! mail#mailbox#root() abort
   return mail#mailbox#_normdir(get(g:, 'mail_root', s:DEFAULT_ROOT))
 endfunction
 
+" Folders created under the root on :Mail so a fresh store isn't an empty list.
+" TRASH is deliberately absent — it's the virtual mail#trash view, never a real
+" dir (a real TRASH would duplicate the view and collide on case-insensitive FS).
+let s:DEFAULT_MAILBOXES = ['inbox', 'sent', 'archive']
+
+function! mail#mailbox#ensure_defaults() abort
+  let root = mail#mailbox#root()
+  for name in s:DEFAULT_MAILBOXES
+    let dir = root . '/' . name
+    if !isdirectory(dir)
+      call mkdir(dir, 'p')
+    endif
+  endfor
+endfunction
+
 " Resolve a user-supplied mailbox string to a full path.
 " Bare names (no leading / or ~) are joined under g:mail_root.
 function! mail#mailbox#_resolve_mailbox(name) abort
