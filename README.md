@@ -63,3 +63,4 @@ You can actually do cool things like:
 - First-fetch UX: a fresh machine (empty getmail oldmail) pulls the whole inbox
   with no progress — add progress/count feedback, and an oldmail bootstrap or a
   "recent N" backfill limit.
+- Toolbar: an at-a-glance action/keymap hint bar for the index and launcher.
