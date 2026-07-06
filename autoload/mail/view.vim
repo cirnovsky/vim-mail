@@ -82,7 +82,9 @@ function! mail#view#preview(vertical) abort
   let entry = b:mail_entries[idx]
 
   " Mark as read now, while index buffer is still active
-  if !entry.read
+  " Staged read-mark is committed on :w, so skip it in read-only views (TRASH):
+  " setline() would throw on a nomodifiable buffer and abort the open.
+  if !entry.read && &modifiable
     call mail#actions#_set_read(idx, 1)
   endif
 
@@ -126,7 +128,9 @@ function! mail#view#open_message() abort
   if idx == -1 | return | endif
   let entry = b:mail_entries[idx]
 
-  if !entry.read
+  " Staged read-mark is committed on :w, so skip it in read-only views (TRASH):
+  " setline() would throw on a nomodifiable buffer and abort the open.
+  if !entry.read && &modifiable
     call mail#actions#_set_read(idx, 1)
   endif
 

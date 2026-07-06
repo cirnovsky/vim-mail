@@ -94,10 +94,31 @@ function! Test_multi_label_not_trashed() abort
   call delete(root, 'rf')
 endfunction
 
+" --- an (unread) orphan opens for reading despite TRASH being nomodifiable ---
+" Regression: open/preview staged a read-mark via setline(), which throws on a
+" nomodifiable buffer and aborted the open — so unread orphans wouldn't open.
+function! Test_open_in_trash() abort
+  let root = tempname() . '/Mail'
+  let a = testmail#ingest(root, 'inbox', 'plain')       " ingested => unread
+  let g:mail_root = root
+
+  call mail#index#open('inbox')
+  call testmail#goto(a) | normal! dd
+  silent write                                          " orphan it
+
+  call mail#trash#open()
+  call testmail#goto(a)
+  call mail#view#open_message()
+  call assert_match('^\[Mail\]', bufname('%'), 'unread orphan opens in a [Mail] view')
+
+  call testmail#wipe_buffers()
+  call delete(root, 'rf')
+endfunction
+
 " --- runner ---
 let v:errors = []
 let s:tests = ['Test_orphan_shows_and_recovers', 'Test_launcher_routes_to_trash',
-      \ 'Test_multi_label_not_trashed']
+      \ 'Test_multi_label_not_trashed', 'Test_open_in_trash']
 for s:t in s:tests
   try
     call call(s:t, [])
