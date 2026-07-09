@@ -60,7 +60,7 @@ autoload/mail/util.vim    shared helpers (py_cmd)
 autoload/mail/index.vim   index buffer: render, refresh/merge, line<->entry, cross-buffer :w helpers
 autoload/mail/actions.vim staged actions: marks, read/unread, delete + paste-link (:w)
 autoload/mail/thread.vim  cross-mailbox message-id index
-autoload/mail/view.vim    reading: preview, full open, html/mime view, search
+autoload/mail/view.vim    reading: preview, full open, html/mime view, search; actionable [N]/[img N] placeholders (gx/gd/gD)
 autoload/mail/compose.vim compose, reply, forward
 autoload/mail/send.vim    assemble + send the compose buffer
 autoload/mail/attach.vim  attachments + inline images (+ clipboard)
@@ -69,9 +69,11 @@ autoload/mail/trash.vim   virtual read-only TRASH view: orphaned (last-label-del
 ftplugin/mail-index.vim   keymaps + BufWriteCmd
 ftplugin/mail-mailboxes.vim launcher keymaps (read-only: <CR> enter, <leader>f fetch, <leader>c compose, q close)
 ftplugin/mail-trash.vim   TRASH keymaps (read-only viewer; yy to recover; R rescan)
+ftplugin/mail-view.vim    message-view keymaps: gx open marker, gd/gD jump placeholder<->footer
 ftplugin/mail-compose.vim :w sends
 syntax/mail-index.vim     conceals the hidden per-line message id
 syntax/mail-trash.vim     same id-conceal, for the TRASH buffer
+syntax/mail-view.vim      builtin mail syntax + [N]/[img N]/footer marker highlights
 scripts/mail_store.py     Python backend entry point (thin shim)
 scripts/mailstore/        backend package: htmltext/ingest/quote/images/send/cli
                           ingest.ingest_one writes .store + symlink; migrate_mbox imports an .mbox
@@ -95,6 +97,7 @@ tests/test_launcher.vim   :Mail launcher: read-only list, <CR> enter, - return
 tests/test_trash.vim      TRASH shows orphans; yy+paste recovers; multi-label not trashed
 tests/test_preload.vim    :Mail preloads a live index buffer for every mailbox
 tests/test_fetch_progress.vim  parses getmail N/M output into live fetch progress
+tests/test_markers.vim    actionable [N]/[img N] placeholders: gx resolves URL/attachment, gd/gD jump
 ```
 
 **Autoload namespacing.** Logic is split into `autoload/mail/<topic>.vim`, so
@@ -408,6 +411,25 @@ Lines starting with `>` and attribution lines filtered out.
 Filtered headers + body + thread ancestors (each ancestor also filtered headers).
 Opens in a bottom split maximized to full height (`wincmd _`) for a full-screen
 read; the index stays a 1-line sliver so `:q` returns to it (no quit-Vim risk).
+
+**Actionable placeholders (`mail#view#*`, filetype `mail-view`)**
+Both the `<CR>` full open and the `o`/`v` preview render `body.txt` in a
+`mail-view` buffer (`ftplugin/mail-view.vim` keymaps + `syntax/mail-view.vim`,
+which `runtime`s the builtin `mail` syntax then highlights markers). **Pure
+frontend — no change to the stored `body.txt`.** It reads the markers already
+there: inline `[N]` → its `Links:` footer URL; inline `[img N]`/`[audio N]` and
+the `Attachments:` footer `[N] filename` → `<dir>/attachments/<file>`. Keys: `gx`
+opens the placeholder under the cursor (via `mail#view#_open_external`, the
+`open`/`xdg-open` helper shared with the `x` html-open), `gd` jumps an inline
+placeholder down to its footer entry, `gD` jumps back up. Resolution is
+**section-relative** — a placeholder binds to the nearest matching footer *below*
+it (`s:footer_line` searches forward) — so a threaded view with one
+`Links:`/`Attachments:` block per message resolves each message's `[N]` against
+its own footer, no cross-message collision. Link-`[N]` and attachment-`[N]` are
+independent sequences; a bare `[N]` is a link, a word-prefixed `[img N]` is an
+attachment. The view stashes only `b:mail_view_dir`; everything else is read from
+the buffer text at keypress (attachment paths resolve through the mailbox
+symlink, so `<mailbox>/<id>` is fine).
 
 ## Keymaps — index buffer
 

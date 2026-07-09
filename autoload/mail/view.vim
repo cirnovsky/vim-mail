@@ -13,7 +13,6 @@ function! mail#view#open_html() abort
     echo 'No HTML body'
     return
   endif
-  let opener = has('mac') ? 'open' : 'xdg-open'
   " Build a viewable copy with cid: images inlined as data: URIs — cid refs
   " don't resolve from a file:// page. External images load via the browser.
   let py_cmd = mail#util#py_cmd()
@@ -21,9 +20,137 @@ function! mail#view#open_html() abort
   if v:shell_error == 0 && view !=# ''
     let tmp = tempname() . '.html'
     call writefile(split(view, "\n", 1), tmp)
-    call job_start([opener, tmp])
+    call mail#view#_open_external(tmp)
   else
-    call job_start([opener, dir . '/body.html'])
+    call mail#view#_open_external(dir . '/body.html')
+  endif
+endfunction
+
+" --- actionable markers in the message view (full open + preview) ----------
+"
+" body.txt carries inert markers this view makes actionable (no stored-format
+" change — it reads the markers already there):
+"   inline  [N]            a hyperlink, listed in the trailing "Links:" footer
+"   inline  [img N]/[..N]  an inline part, listed in the "Attachments:" footer
+"   footer  [N] href       (under Links:)        -> open the URL in a browser
+"   footer  [N] filename   (under Attachments:)  -> open <dir>/attachments/<file>
+" Link-[N] and attachment-[N] are independent 1-based sequences. Resolution is
+" section-relative — an inline placeholder binds to the nearest matching footer
+" BELOW it — so a threaded view (several messages, each with its own footers)
+" stays correct. Keys live in ftplugin/mail-view.vim: gx open, gd placeholder->
+" footer, gD footer->placeholder.
+
+function! mail#view#_open_external(target) abort
+  let opener = has('mac') ? 'open' : 'xdg-open'
+  call job_start([opener, a:target])
+endfunction
+
+" Nearest footer section a line sits under, scanning upward: 'link'|'attach'|''.
+function! s:section_at(lnum) abort
+  let l = a:lnum
+  while l >= 1
+    let t = getline(l)
+    if t ==# 'Links:'       | return 'link'   | endif
+    if t ==# 'Attachments:' | return 'attach' | endif
+    let l -= 1
+  endwhile
+  return ''
+endfunction
+
+" Marker under the cursor: {} or {kind:'link'|'attach', n, footer:0|1, lnum}.
+function! s:marker_at(lnum, col) abort
+  let line = getline(a:lnum)
+  let fm = matchlist(line, '^\[\(\d\+\)\] \(.*\)$')
+  if !empty(fm)
+    let sect = s:section_at(a:lnum)
+    if sect !=# ''
+      return {'kind': sect, 'n': fm[1], 'footer': 1, 'lnum': a:lnum}
+    endif
+  endif
+  let start = 0
+  while 1
+    let mp = matchstrpos(line, '\[\%(\a\+ \)\?\d\+\]', start)
+    if mp[1] < 0 | break | endif
+    if a:col - 1 >= mp[1] && a:col - 1 < mp[2]
+      let ml = matchlist(mp[0], '^\[\%(\(\a\+\) \)\?\(\d\+\)\]$')
+      return {'kind': empty(ml[1]) ? 'link' : 'attach', 'n': ml[2], 'footer': 0, 'lnum': a:lnum}
+    endif
+    let start = mp[2]
+  endwhile
+  return {}
+endfunction
+
+" First footer entry line for (kind, n) whose section header is at/after `from`.
+function! s:footer_line(kind, n, from) abort
+  let header = a:kind ==# 'link' ? 'Links:' : 'Attachments:'
+  let last = line('$')
+  let l = a:from
+  while l <= last && getline(l) !=# header | let l += 1 | endwhile
+  if l > last | return 0 | endif
+  let l += 1
+  while l <= last && getline(l) =~# '^\[\d\+\] '
+    if getline(l) =~# '^\[' . a:n . '\] ' | return l | endif
+    let l += 1
+  endwhile
+  return 0
+endfunction
+
+function! s:target(kind, rest) abort
+  if a:rest ==# '' | return {} | endif
+  if a:kind ==# 'link'
+    return {'type': 'url', 'target': a:rest}
+  endif
+  return {'type': 'file', 'target': get(b:, 'mail_view_dir', '') . '/attachments/' . a:rest}
+endfunction
+
+" Resolve the marker under (lnum,col) to {type,target}, or {} if none/unresolved.
+function! mail#view#_resolve_at(lnum, col) abort
+  let m = s:marker_at(a:lnum, a:col)
+  if empty(m) | return {} | endif
+  if m.footer
+    return s:target(m.kind, matchstr(getline(m.lnum), '^\[\d\+\] \zs.*$'))
+  endif
+  let fl = s:footer_line(m.kind, m.n, m.lnum)
+  if fl == 0 | return {} | endif
+  return s:target(m.kind, matchstr(getline(fl), '^\[\d\+\] \zs.*$'))
+endfunction
+
+" gx: open the URL / attachment under the cursor.
+function! mail#view#open_marker() abort
+  let t = mail#view#_resolve_at(line('.'), col('.'))
+  if empty(t)
+    echo 'No link or attachment under cursor'
+    return
+  endif
+  call mail#view#_open_external(t.target)
+endfunction
+
+" gd: from an inline placeholder jump down to its footer entry.
+function! mail#view#jump_to_footer() abort
+  let m = s:marker_at(line('.'), col('.'))
+  if empty(m) || m.footer | return | endif
+  let fl = s:footer_line(m.kind, m.n, m.lnum)
+  if fl > 0
+    call cursor(fl, 1)
+  else
+    echo 'No footer entry for [' . m.n . ']'
+  endif
+endfunction
+
+" gD: from a footer entry jump back up to the inline placeholder above it.
+function! mail#view#jump_to_inline() abort
+  let m = s:marker_at(line('.'), col('.'))
+  if empty(m) || !m.footer | return | endif
+  let header = m.kind ==# 'link' ? 'Links:' : 'Attachments:'
+  let hl = m.lnum
+  while hl >= 1 && getline(hl) !=# header | let hl -= 1 | endwhile
+  if hl < 1 | return | endif
+  let pat = m.kind ==# 'link' ? '\[' . m.n . '\]' : '\[\a\+\s' . m.n . '\]'
+  let save = getcurpos()
+  call cursor(hl, 1)
+  if search(pat, 'bW') == 0
+    call setpos('.', save)
+    echo 'No placeholder for [' . m.n . ']'
   endif
 endfunction
 
@@ -67,7 +194,7 @@ function! mail#view#_open_preview_window(vertical) abort
   execute (a:vertical ? 'botright vsplit' : 'botright split')
   enew
   setlocal buftype=nofile bufhidden=hide noswapfile nobuflisted
-  setlocal syntax=mail              " builtin mail syntax: colored quotes + headers
+  setlocal filetype=mail-view       " marker keymaps + syntax (loads builtin mail)
   silent! file [Mail\ Preview]
   let s:preview_bufnr = bufnr('%')
 endfunction
@@ -116,6 +243,7 @@ function! mail#view#preview(vertical) abort
   setlocal modifiable
   silent! 1,$delete _
   call setline(1, lines)
+  let b:mail_view_dir = entry.dir
   setlocal nomodifiable nomodified
 endfunction
 
@@ -172,9 +300,10 @@ function! mail#view#open_message() abort
   wincmd _                       " maximize height: full-screen read, :q returns
   enew
   setlocal buftype=nofile bufhidden=wipe noswapfile nobuflisted
-  setlocal syntax=mail              " builtin mail syntax: colored quotes + headers
   execute 'silent! file ' . fnameescape('[Mail] ' . entry.meta.subject)
+  let b:mail_view_dir = entry.dir
   call setline(1, lines)
+  setlocal filetype=mail-view       " marker keymaps + syntax (loads builtin mail)
   setlocal nomodifiable nomodified
   call cursor(len(headers) + 2, 1)
 endfunction
