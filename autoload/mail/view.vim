@@ -21,9 +21,9 @@ function! mail#view#open_html() abort
   if v:shell_error == 0 && view !=# ''
     let tmp = tempname() . '.html'
     call writefile(split(view, "\n", 1), tmp)
-    call job_start([opener, tmp])
+    call mail#util#job_start([opener, tmp], {'detach': 1})
   else
-    call job_start([opener, dir . '/body.html'])
+    call mail#util#job_start([opener, dir . '/body.html'], {'detach': 1})
   endif
 endfunction
 

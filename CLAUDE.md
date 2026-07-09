@@ -56,7 +56,7 @@ never parses MIME itself.
 plugin/mail.vim           :Mail (-> launcher / a mailbox) + g:mail_* setup
 autoload/mail/mailboxlist.vim read-only mailbox launcher (:Mail list, <CR>/- navigation; preloads all mailbox buffers)
 autoload/mail/mailbox.vim mailbox path resolution, completion, prompting; ensure_defaults (inbox/sent/archive)
-autoload/mail/util.vim    shared helpers (py_cmd)
+autoload/mail/util.vim    shared helpers: py_cmd; portable async-job shim (Vim job_start / Neovim jobstart)
 autoload/mail/index.vim   index buffer: render, refresh/merge, line<->entry, cross-buffer :w helpers
 autoload/mail/actions.vim staged actions: marks, read/unread, delete + paste-link (:w)
 autoload/mail/thread.vim  cross-mailbox message-id index
@@ -95,6 +95,7 @@ tests/test_launcher.vim   :Mail launcher: read-only list, <CR> enter, - return
 tests/test_trash.vim      TRASH shows orphans; yy+paste recovers; multi-label not trashed
 tests/test_preload.vim    :Mail preloads a live index buffer for every mailbox
 tests/test_fetch_progress.vim  parses getmail N/M output into live fetch progress
+tests/test_job.vim        portable async-job shim: live job (out/exit cbs) + Neovim line-reassembly
 ```
 
 **Autoload namespacing.** Logic is split into `autoload/mail/<topic>.vim`, so
@@ -504,6 +505,14 @@ Requires Vim 8+ (tested on 9.2). Required feature flags:
 `+job` `+timers` `+lambda` `+conceal`
 
 Check with `:echo has('job') && has('timers') && has('lambda') && has('conceal')`
+
+**Neovim** is supported for the async paths: all `job_start`/`job_status` calls
+go through `mail#util#job_start`/`mail#util#job_running`, which dispatch to
+Neovim's `jobstart`/`jobwait` when `has('nvim')` and adapt the callback shapes
+(Neovim's `on_stdout` delivers a line *list* with a trailing partial, reassembled
+by `mail#util#_nvim_lines` — unit-tested in `tests/test_job.vim`). Callers keep
+their Vim-style `(ch,msg)`/`(job,status)` callbacks; no `job_start`/`job_status`
+is called directly outside `util.vim`.
 
 ### Python
 `mail_store.py` requires Python 3.9+ (uses `email.policy`, `html.parser`,

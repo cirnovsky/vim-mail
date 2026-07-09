@@ -132,7 +132,7 @@ function! mail#send#send() abort
         \ . shellescape(sent_dir) . ' >' . shellescape(outfile) . ' 2>&1'
   let ctx = {'tmpfile': tmpfile, 'outfile': outfile, 'to': to}
   echo 'Sending to ' . to . ' ...'
-  let s:send_job = job_start(['/bin/sh', '-c', cmd],
+  let s:send_job = mail#util#job_start(['/bin/sh', '-c', cmd],
         \ {'exit_cb': function('mail#send#_send_exit_cb', [ctx])})
   setlocal nomodified
 endfunction
@@ -159,7 +159,7 @@ endfunction
 function! mail#send#_await(...) abort
   let timeout = a:0 ? a:1 : 20000
   let waited = 0
-  while s:send_job isnot v:null && job_status(s:send_job) ==# 'run' && waited < timeout
+  while mail#util#job_running(s:send_job) && waited < timeout
     sleep 20m
     let waited += 20
   endwhile
