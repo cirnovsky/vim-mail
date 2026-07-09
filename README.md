@@ -27,6 +27,7 @@ directly. Inside a folder:
 |---|---|
 | `<leader>f` | Fetch new mail |
 | `<CR>` / `o` `v` | Open / quick preview in a split |
+| `gx` / `gd` `gD` | In an open message: open the link/attachment under the cursor; jump between an inline `[N]` and its footer |
 | `r` / `f` `F` | Reply / forward inline or as attachment |
 | `<leader>c` | Compose |
 | `x` / `gm` | HTML in browser / browse attachments |
