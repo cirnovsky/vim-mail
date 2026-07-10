@@ -44,27 +44,148 @@ function! mail#mailboxlist#open() abort
   call mail#mailboxlist#render()
 endfunction
 
-function! mail#mailboxlist#render() abort
-  " TRASH is a virtual read-only view (mail#trash), not a real dir — appended
-  " here, never in _mailboxes() (so preload/completion never treat it as one).
-  let names = mail#mailboxlist#_mailboxes() + ['TRASH']
-  setlocal modifiable
-  silent! 1,$delete _
-  if !empty(names)
-    call setline(1, names)
-  endif
-  setlocal nomodifiable nomodified
+" Center `s` (ASCII) in a field of width `w`.
+function! s:center(s, w) abort
+  let n = strchars(a:s)
+  if n >= a:w | return a:s | endif
+  let l = (a:w - n) / 2
+  return repeat(' ', l) . a:s . repeat(' ', a:w - n - l)
 endfunction
 
-" <CR>: open the mailbox named on the current line in its own index buffer.
+" --- ASCII scene motifs: the neighbourhood the folder icons live in ---------
+" Single-quoted so backslashes are literal; the dog's legs line needs "" (quotes).
+let s:CLOUD  = [' ~~', '~~~']
+let s:TREES  = [' /\ /\ /\', '//\\/\\/\\', '//\\/\\/\\', ' || || ||']
+let s:DOG    = ['    __', ' __/  \_', "'-o---o-'"]
+let s:BIGBOX = ['  _||____', ' /\\\\\\\\', '/__\\\\\\\\  _,', '|__|_|_|__|   \__,', '|  |/|\| /|   /\ \']
+let s:ICON   = [' ___', '| _ |', '|[_]|', '|___|']
+let s:BIN    = [' ___', '|___|', '|. .|', '|___|']
+
+" Overlay art (a list of lines) onto the char grid at (r, c), skipping spaces so
+" it composites over the backdrop rather than blanking it.
+function! s:put(grid, r, c, art) abort
+  let i = 0
+  for line in a:art
+    let row = a:r + i
+    if row >= 0 && row < len(a:grid)
+      let j = 0
+      for ch in split(line, '\zs')
+        let col = a:c + j
+        if ch !=# ' ' && col >= 0 && col < len(a:grid[row])
+          let a:grid[row][col] = ch
+        endif
+        let j += 1
+      endfor
+    endif
+    let i += 1
+  endfor
+endfunction
+
+" Render all mailboxes into ONE scene: a row of folder icons (TRASH as a trash
+" bin) framed by trees on the left and a dog + big mailbox on the right, clouds
+" above, a ground line below — centered in the window. Only the folder icons are
+" navigable: b:mailbox_cells records each one's column span + cursor anchor. TRASH
+" is the virtual mail#trash view, appended here (never a real dir).
+function! mail#mailboxlist#render() abort
+  let names = mail#mailboxlist#_mailboxes() + ['TRASH']
+
+  " Column layout (0-based within the scene): icons in a row after the trees; the
+  " dog and big mailbox decorate the right. base = top row of the icons/trees.
+  let base = 2
+  let iw = 5
+  let igap = 4
+  let left = 15
+  " Uniform icon pitch; the name is centered under each icon (may spill into the
+  " gap for names a little longer than the icon). cellcols: [name, c0, c1].
+  let cellcols = []
+  let x = left
+  for name in names
+    call add(cellcols, [name, x, x + iw - 1])
+    let x += iw + igap
+  endfor
+  let dog_x = x - igap + 3
+  let box_x = dog_x + 10
+  let scene_w = box_x + 18
+  let scene_h = 8
+  let ground = scene_h - 1
+
+  " Build the grid and composite the scene onto it.
+  let grid = []
+  for r in range(scene_h) | call add(grid, repeat([' '], scene_w)) | endfor
+  call s:put(grid, base - 2, box_x + 4, s:CLOUD)
+  call s:put(grid, base + 1, 1, s:TREES)
+  for [name, c0, c1] in cellcols
+    call s:put(grid, base, c0, name ==# 'TRASH' ? s:BIN : s:ICON)
+    call s:put(grid, base + 4, c0 + (iw - strchars(name)) / 2, [name])
+  endfor
+  call s:put(grid, base + 2, dog_x, s:DOG)
+  call s:put(grid, base, box_x, s:BIGBOX)
+  for c in range(scene_w) | let grid[ground][c] = '~' | endfor
+
+  " Rows -> strings; center horizontally (indent) + vertically (blank lines above).
+  let rows = map(copy(grid), 'substitute(join(v:val, ""), "\\s\\+$", "", "")')
+  let maxw = 0
+  for l in rows | let maxw = max([maxw, strdisplaywidth(l)]) | endfor
+  let indent = max([0, (winwidth(0) - maxw) / 2])
+  let vpad = max([0, (winheight(0) - len(rows)) / 2])
+  call map(rows, 'repeat(" ", indent) . v:val')
+  let rows = repeat([''], vpad) + rows
+
+  " Record the navigable folder cells (column span + cursor anchor on the name).
+  let b:mailbox_cells = []
+  for [name, c0, c1] in cellcols
+    call add(b:mailbox_cells, {
+          \ 'name':   name,
+          \ 'cstart': indent + c0 + 1,
+          \ 'cend':   indent + c1 + 1,
+          \ 'line':   vpad + base + 4 + 1,
+          \ 'col':    indent + (c0 + c1) / 2 + 1})
+  endfor
+
+  setlocal modifiable
+  silent! 1,$delete _
+  call setline(1, rows)
+  setlocal nomodifiable nomodified
+  call cursor(b:mailbox_cells[0].line, b:mailbox_cells[0].col)
+endfunction
+
+" The mailbox cell under column `c` (exact span, else nearest by centre).
+function! s:cell_at(c) abort
+  let cells = get(b:, 'mailbox_cells', [])
+  if empty(cells) | return {} | endif
+  for cell in cells
+    if a:c >= cell.cstart && a:c <= cell.cend | return cell | endif
+  endfor
+  let best = cells[0]
+  for cell in cells
+    if abs(cell.col - a:c) < abs(best.col - a:c) | let best = cell | endif
+  endfor
+  return best
+endfunction
+
+" <CR>: open the mailbox under the cursor's column in its own index buffer.
 function! mail#mailboxlist#enter() abort
-  let name = trim(getline('.'))
-  if name ==# '' | return | endif
-  if name ==# 'TRASH'
+  let cell = s:cell_at(col('.'))
+  if empty(cell) | return | endif
+  if cell.name ==# 'TRASH'
     call mail#trash#open()
   else
-    call mail#index#open(name)
+    call mail#index#open(cell.name)
   endif
+endfunction
+
+" hjkl move a whole mailbox at a time along the row (dir = +1 next / -1 prev),
+" landing on that mailbox's name. Clamped at the ends.
+function! mail#mailboxlist#jump(dir) abort
+  let cells = get(b:, 'mailbox_cells', [])
+  if empty(cells) | return | endif
+  let cur = s:cell_at(col('.'))
+  let idx = 0
+  for i in range(len(cells))
+    if cells[i].name ==# get(cur, 'name', '') | let idx = i | break | endif
+  endfor
+  let idx = max([0, min([len(cells) - 1, idx + a:dir])])
+  call cursor(cells[idx].line, cells[idx].col)
 endfunction
 
 " `:Mail` dispatch: no arg -> the launcher; a name -> that mailbox directly.
