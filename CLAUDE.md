@@ -54,7 +54,7 @@ never parses MIME itself.
 
 ```
 plugin/mail.vim           :Mail (-> launcher / a mailbox) + g:mail_* setup
-autoload/mail/mailboxlist.vim read-only mailbox launcher (:Mail list, <CR>/- navigation; preloads all mailbox buffers)
+autoload/mail/mailboxlist.vim read-only mailbox launcher (:Mail — one grid-composited ASCII scene: folder icons in a row framed by trees/dog/big-mailbox/clouds; hjkl/<CR>/- navigation; preloads all mailbox buffers)
 autoload/mail/mailbox.vim mailbox path resolution, completion, prompting; ensure_defaults (inbox/sent/archive)
 autoload/mail/util.vim    shared helpers (py_cmd)
 autoload/mail/index.vim   index buffer: render, refresh/merge, line<->entry, cross-buffer :w helpers
@@ -67,7 +67,7 @@ autoload/mail/attach.vim  attachments + inline images (+ clipboard)
 autoload/mail/fetch.vim   async getmail (always into inbox); live N/M progress from getmail output
 autoload/mail/trash.vim   virtual read-only TRASH view: orphaned (last-label-deleted) canons
 ftplugin/mail-index.vim   keymaps + BufWriteCmd
-ftplugin/mail-mailboxes.vim launcher keymaps (read-only: <CR> enter, <leader>f fetch, <leader>c compose, q close)
+ftplugin/mail-mailboxes.vim launcher keymaps (read-only, no underline: <CR> enter, hjkl jump mailboxes, <leader>f fetch, <leader>c compose, q close)
 ftplugin/mail-trash.vim   TRASH keymaps (read-only viewer; yy to recover; R rescan)
 ftplugin/mail-view.vim    message-view keymaps: gx open marker, gd/gD jump placeholder<->footer
 ftplugin/mail-compose.vim :w sends
@@ -93,7 +93,7 @@ tests/test_paste.vim      native dd+p = move / yy+p = copy across mailbox buffer
 tests/test_write_all.vim  one :w commits every modified index buffer
 tests/test_fetch_merge.vim fetch/nav merges new mail into a modified buffer, edits kept
 tests/test_undo.vim       undo survives :w + navigation (merge/resync, no undo clear)
-tests/test_launcher.vim   :Mail launcher: read-only list, <CR> enter, - return
+tests/test_launcher.vim   :Mail launcher: <CR> enter, - return, defaults; golden scene render vs tests/fixtures/launcher.txt
 tests/test_trash.vim      TRASH shows orphans; yy+paste recovers; multi-label not trashed
 tests/test_preload.vim    :Mail preloads a live index buffer for every mailbox
 tests/test_fetch_progress.vim  parses getmail N/M output into live fetch progress
@@ -468,7 +468,22 @@ visual range with a `:normal`.
 (inbox/sent floated to top; `.store` hidden; `TRASH` appended) —
 `autoload/mail/mailboxlist.vim` +
 `ftplugin/mail-mailboxes.vim`, buffer `mail://[mailboxes]`, `nomodifiable` so a
-stray `dd` can't delete a whole mailbox. `<CR>` enters the mailbox under the
+stray `dd` can't delete a whole mailbox. Mailboxes are drawn as **one grid-composited
+ASCII scene**: `render()` builds a char grid and `s:put`s motifs onto it (spaces
+transparent) — a row of **folder icons** (`s:ICON`; `TRASH` → `s:BIN`) framed by
+`s:TREES` on the left and `s:DOG` + `s:BIGBOX` on the right, `s:CLOUD` above, a
+ground line below — then centers it in the window (horizontal indent + blank lines
+above). **Only the folder icons are navigable** (the trees/dog/big-mailbox are
+decoration). Navigation is by **column**: `render()` records `b:mailbox_cells`
+(each folder's `cstart`/`cend` column span + name-row anchor `line`/`col`),
+`enter()` opens the mailbox under the cursor's column (`s:cell_at`, exact span
+else nearest centre), and **`hjkl` move one mailbox along the row**
+(`mail#mailboxlist#jump(±1)`: h/k left, l/j right, clamped). The current-line
+**underline is off** (`nocursorline`). The scene is **adaptive**: the icon row,
+the dog + big mailbox to its right, and the ground line all derive from the live
+folder list (create/delete a mailbox → the scene re-lays-out), and each cell
+widens to `max(icon-width, name-length)` so a long folder name never collides
+with its neighbour. `<CR>` enters the mailbox under the
 cursor (its own `mail://<name>` buffer, or `mail#trash#open()` for `TRASH`);
 `<leader>f` fetches (always into
 `inbox`); `<leader>c` composes; `-` from a mailbox returns to the list; `q`

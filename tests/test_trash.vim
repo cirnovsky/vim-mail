@@ -62,9 +62,9 @@ function! Test_launcher_routes_to_trash() abort
   silent write                                          " orphan it
 
   call mail#mailboxlist#open()
-  call assert_notequal(-1, index(getline(1, '$'), 'TRASH'), 'launcher lists TRASH')
+  call assert_notequal(-1, index(map(copy(b:mailbox_cells), 'v:val.name'), 'TRASH'), 'launcher lists TRASH')
   call cursor(1, 1)
-  call search('^TRASH$', 'cW')
+  call search('\VTRASH', 'cW')
   call mail#mailboxlist#enter()
   call assert_equal('mail://TRASH', bufname('%'), '<CR> on TRASH opens the view')
   call assert_false(&modifiable, 'TRASH read-only via launcher')
