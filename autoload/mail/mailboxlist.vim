@@ -109,6 +109,19 @@ function! mail#mailboxlist#render() abort
   let scene_h = 8
   let ground = scene_h - 1
 
+  " Too narrow for the scene? Fall back in two tiers: first the compact boxed
+  " menu, then (if even that won't fit) the plain one-per-line list.
+  " g:mail_launcher_width overrides winwidth (tests / forcing a layout).
+  let width = get(g:, 'mail_launcher_width', winwidth(0))
+  if width < scene_w
+    if width >= s:box_inner(names) + 2
+      call s:render_box(names)
+    else
+      call s:render_list(names)
+    endif
+    return
+  endif
+
   " Build the grid and composite the scene onto it.
   let grid = []
   for r in range(scene_h) | call add(grid, repeat([' '], scene_w)) | endfor
@@ -122,11 +135,14 @@ function! mail#mailboxlist#render() abort
   call s:put(grid, base, box_x, s:BIGBOX)
   for c in range(scene_w) | let grid[ground][c] = '~' | endfor
 
-  " Rows -> strings; center horizontally (indent) + vertically (blank lines above).
+  " Rows -> strings; append the title/footer centered in the scene width
+  " (computed, not hardcoded); then center the whole block in the window.
   let rows = map(copy(grid), 'substitute(join(v:val, ""), "\\s\\+$", "", "")')
+  call add(rows, s:hcenter('✉ muaa 2026', scene_w))
+  call add(rows, s:hcenter('cirnovsky', scene_w))
   let maxw = 0
   for l in rows | let maxw = max([maxw, strdisplaywidth(l)]) | endfor
-  let indent = max([0, (winwidth(0) - maxw) / 2])
+  let indent = max([0, (width - maxw) / 2])
   let vpad = max([0, (winheight(0) - len(rows)) / 2])
   call map(rows, 'repeat(" ", indent) . v:val')
   let rows = repeat([''], vpad) + rows
@@ -149,23 +165,118 @@ function! mail#mailboxlist#render() abort
   call cursor(b:mailbox_cells[0].line, b:mailbox_cells[0].col)
 endfunction
 
-" The mailbox cell under column `c` (exact span, else nearest by centre).
-function! s:cell_at(c) abort
+" Center a string in width `w` (computed leading pad, never hardcoded).
+function! s:hcenter(s, w) abort
+  return repeat(' ', max([0, (a:w - strdisplaywidth(a:s)) / 2])) . a:s
+endfunction
+
+" Display name: capitalize the first letter (inbox -> Inbox); already-caps names
+" (TRASH) are unchanged.
+function! s:cap(name) abort
+  return toupper(a:name[0]) . a:name[1:]
+endfunction
+
+" Inner width of the boxed launcher: a comfy fixed 30, widened only if a label
+" would otherwise not fit.
+function! s:box_inner(names) abort
+  let m = 30
+  for name in a:names
+    let m = max([m, strchars(' ▸  ' . s:cap(name)) + 2])
+  endfor
+  return m
+endfunction
+
+" First-tier fallback: a compact boxed menu (unicode box-drawing). Adaptive in
+" height (one ▸ row per mailbox) and, if needed, width. Line-based navigation via
+" the same b:mailbox_cells / cell_at / jump machinery. Centered like the scene.
+function! s:render_box(names) abort
+  let iw = s:box_inner(a:names)
+  let bar = repeat('═', iw)
+
+  " title row: ⚘ far left, '✉ muaa 2026' centered, ☠ far right
+  let t = split(repeat(' ', iw), '\zs')
+  let t[1] = '⚘'
+  let t[iw - 2] = '☠'
+  let mid = '✉ muaa 2026'
+  let ms = (iw - strchars(mid)) / 2
+  let mc = split(mid, '\zs')
+  for k in range(len(mc)) | let t[ms + k] = mc[k] | endfor
+
+  let rows = ['╔' . bar . '╗', '║' . join(t, '') . '║',
+        \ '║' . s:center('cirnovsky', iw) . '║', '╠' . bar . '╣']
+  let mbox0 = len(rows) + 1                    " 1-based line of the first mailbox
+  for name in a:names
+    let label = ' ▸  ' . s:cap(name)
+    call add(rows, '║' . label . repeat(' ', iw - strchars(label)) . '║')
+  endfor
+  call add(rows, '╚' . bar . '╝')
+
+  " center in the window, like the scene
+  let width = get(g:, 'mail_launcher_width', winwidth(0))
+  let indent = max([0, (width - (iw + 2)) / 2])
+  let vpad = max([0, (winheight(0) - len(rows)) / 2])
+  call map(rows, 'repeat(" ", indent) . v:val')
+  let rows = repeat([''], vpad) + rows
+
+  let b:mailbox_cells = []
+  let i = 0
+  for name in a:names
+    call add(b:mailbox_cells,
+          \ {'name': name, 'line': vpad + mbox0 + i, 'cstart': 1, 'cend': 9999,
+          \  'col': indent + 1})
+    let i += 1
+  endfor
+
+  setlocal modifiable
+  silent! 1,$delete _
+  call setline(1, rows)
+  setlocal nomodifiable nomodified
+  call cursor(b:mailbox_cells[0].line, b:mailbox_cells[0].col)
+endfunction
+
+" Fallback launcher for a very narrow window: the old plain list, one mailbox per
+" line. Navigation is line-based — each cell owns a whole line — but the same
+" b:mailbox_cells / cell_at / jump machinery drives it.
+function! s:render_list(names) abort
+  let b:mailbox_cells = []
+  let i = 0
+  for name in a:names
+    call add(b:mailbox_cells,
+          \ {'name': name, 'line': i + 1, 'cstart': 1, 'cend': 9999, 'col': 1})
+    let i += 1
+  endfor
+  setlocal modifiable
+  silent! 1,$delete _
+  call setline(1, a:names)
+  setlocal nomodifiable nomodified
+  call cursor(1, 1)
+endfunction
+
+" The mailbox cell at the cursor: exact (line, column-span) match, else nearest
+" by line then column. Works for both layouts (scene = one row many columns;
+" list = one column many rows).
+function! s:cell_at() abort
   let cells = get(b:, 'mailbox_cells', [])
   if empty(cells) | return {} | endif
+  let ln = line('.')
+  let cn = col('.')
   for cell in cells
-    if a:c >= cell.cstart && a:c <= cell.cend | return cell | endif
+    if cell.line == ln && cn >= cell.cstart && cn <= cell.cend | return cell | endif
   endfor
   let best = cells[0]
+  let bd = [9999, 9999]
   for cell in cells
-    if abs(cell.col - a:c) < abs(best.col - a:c) | let best = cell | endif
+    let d = [abs(cell.line - ln), abs(cell.col - cn)]
+    if d[0] < bd[0] || (d[0] == bd[0] && d[1] < bd[1])
+      let best = cell | let bd = d
+    endif
   endfor
   return best
 endfunction
 
-" <CR>: open the mailbox under the cursor's column in its own index buffer.
+" <CR>: open the mailbox under the cursor in its own index buffer.
 function! mail#mailboxlist#enter() abort
-  let cell = s:cell_at(col('.'))
+  let cell = s:cell_at()
   if empty(cell) | return | endif
   if cell.name ==# 'TRASH'
     call mail#trash#open()
@@ -174,12 +285,12 @@ function! mail#mailboxlist#enter() abort
   endif
 endfunction
 
-" hjkl move a whole mailbox at a time along the row (dir = +1 next / -1 prev),
-" landing on that mailbox's name. Clamped at the ends.
+" hjkl move a whole mailbox at a time (dir = +1 next / -1 prev), landing on that
+" mailbox's anchor. Works along the row (scene) or down the list (fallback).
 function! mail#mailboxlist#jump(dir) abort
   let cells = get(b:, 'mailbox_cells', [])
   if empty(cells) | return | endif
-  let cur = s:cell_at(col('.'))
+  let cur = s:cell_at()
   let idx = 0
   for i in range(len(cells))
     if cells[i].name ==# get(cur, 'name', '') | let idx = i | break | endif

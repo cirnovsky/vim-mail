@@ -13,6 +13,9 @@ nnoremap <buffer> <silent> j :call mail#mailboxlist#jump(1)<CR>
 nnoremap <buffer> <silent> k :call mail#mailboxlist#jump(-1)<CR>
 nnoremap <buffer> <silent> l :call mail#mailboxlist#jump(1)<CR>
 nnoremap <buffer> <silent> h :call mail#mailboxlist#jump(-1)<CR>
+" R re-renders, picking the layout (scene / boxed menu / plain list) for the
+" CURRENT window width — handy after resizing the window.
+nnoremap <buffer> <silent> R             :call mail#mailboxlist#render()<CR>
 nnoremap <buffer> <silent> <leader>f     :call mail#fetch#fetch()<CR>
 nnoremap <buffer> <silent> <leader>c     :call mail#compose#compose()<CR>
 nnoremap <buffer> <silent> q             :bwipeout<CR>

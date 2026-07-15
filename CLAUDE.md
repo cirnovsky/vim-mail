@@ -54,7 +54,7 @@ never parses MIME itself.
 
 ```
 plugin/mail.vim           :Mail (-> launcher / a mailbox) + g:mail_* setup
-autoload/mail/mailboxlist.vim read-only mailbox launcher (:Mail — one grid-composited ASCII scene: folder icons in a row framed by trees/dog/big-mailbox/clouds; hjkl/<CR>/- navigation; preloads all mailbox buffers)
+autoload/mail/mailboxlist.vim read-only mailbox launcher (:Mail — width-tiered: ASCII scene / boxed menu / plain list; hjkl/<CR>/-/R navigation; preloads all mailbox buffers)
 autoload/mail/mailbox.vim mailbox path resolution, completion, prompting; ensure_defaults (inbox/sent/archive)
 autoload/mail/util.vim    shared helpers (py_cmd)
 autoload/mail/index.vim   index buffer: render, refresh/merge, line<->entry, cross-buffer :w helpers
@@ -67,7 +67,7 @@ autoload/mail/attach.vim  attachments + inline images (+ clipboard)
 autoload/mail/fetch.vim   async getmail (always into inbox); live N/M progress from getmail output
 autoload/mail/trash.vim   virtual read-only TRASH view: orphaned (last-label-deleted) canons
 ftplugin/mail-index.vim   keymaps + BufWriteCmd
-ftplugin/mail-mailboxes.vim launcher keymaps (read-only, no underline: <CR> enter, hjkl jump mailboxes, <leader>f fetch, <leader>c compose, q close)
+ftplugin/mail-mailboxes.vim launcher keymaps (read-only, no underline: <CR> enter, hjkl jump mailboxes, R re-render for current width, <leader>f fetch, <leader>c compose, q close)
 ftplugin/mail-trash.vim   TRASH keymaps (read-only viewer; yy to recover; R rescan)
 ftplugin/mail-view.vim    message-view keymaps: gx open marker, gd/gD jump placeholder<->footer
 ftplugin/mail-compose.vim :w sends
@@ -479,11 +479,25 @@ decoration). Navigation is by **column**: `render()` records `b:mailbox_cells`
 `enter()` opens the mailbox under the cursor's column (`s:cell_at`, exact span
 else nearest centre), and **`hjkl` move one mailbox along the row**
 (`mail#mailboxlist#jump(±1)`: h/k left, l/j right, clamped). The current-line
-**underline is off** (`nocursorline`). The scene is **adaptive**: the icon row,
-the dog + big mailbox to its right, and the ground line all derive from the live
-folder list (create/delete a mailbox → the scene re-lays-out), and each cell
-widens to `max(icon-width, name-length)` so a long folder name never collides
-with its neighbour. `<CR>` enters the mailbox under the
+**underline is off** (`nocursorline`). A **title/footer** (`✉ muaa 2026 / cirnovsky`)
+is appended, centered in the scene width by `s:hcenter` (computed leading pad — no
+hardcoded spaces). The scene is **adaptive**: the icon row, the dog + big mailbox
+to its right, the ground line, and the title all derive from the live folder list
+(create/delete → the scene re-lays-out).
+
+**Three width tiers** (`get(g:,'mail_launcher_width',winwidth(0))` — the `g:`
+overrides winwidth, since headless `-es` pins it to 80):
+- `width >= scene_w` → the ASCII scene above.
+- `>= s:box_inner(names)+2` (≈32) → **`s:render_box`**, a compact unicode boxed menu
+  (`╔…╗`, a title row `⚘ ✉ muaa 2026 ☠` + `cirnovsky`, one `▸ Name` row per mailbox,
+  names Title-cased via `s:cap`). Golden: `tests/fixtures/launcher-2.txt`. Adaptive
+  in height (a row per mailbox) and, if a label won't fit, width.
+- else → **`s:render_list`**, the old plain one-per-line list.
+
+All three set `b:mailbox_cells` and are driven by the SAME `s:cell_at`/`jump` (which
+match by line+column, so a cell can own a column on one row (scene) or a whole line
+(box/list)) — `hjkl`/`<CR>` navigate any layout. **`R`** re-renders for the CURRENT
+width, so after resizing you get the right tier. `<CR>` enters the mailbox under the
 cursor (its own `mail://<name>` buffer, or `mail#trash#open()` for `TRASH`);
 `<leader>f` fetches (always into
 `inbox`); `<leader>c` composes; `-` from a mailbox returns to the list; `q`
