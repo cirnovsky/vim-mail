@@ -78,7 +78,7 @@ scripts/mail_store.py     Python backend entry point (thin shim)
 scripts/mailstore/        backend package: htmltext/ingest/quote/images/send/cli
                           ingest.ingest_one writes .store + symlink; migrate_mbox imports an .mbox
 mail-setup.md             full backend setup doc (msmtp, getmail, store)
-setup.sh                  one-off: prints vimrc + getmailrc config for this clone
+setup.sh                  one-off: prints muaa install/run steps + msmtprc/getmailrc config for this clone (plugin use is a footnote)
 muaa                      launcher script: runs a clean Vim as a standalone mail app
 muaa-init.vim             curated init for muaa (rtp = $VIMRUNTIME + this repo only; loads the plugin, opens :Mail; sets the vifm-style top path bar via tabline=%!mail#util#tabline())
 Makefile                  `make test` (local) / `make test-linux` (Docker) / `make test-integration` (GreenMail)

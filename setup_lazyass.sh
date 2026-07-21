@@ -221,21 +221,34 @@ if printf '%s' "$APPPW" | "$PYTHON" "$VERIFY" "$SMTP_HOST" "$SMTP_PORT" "$EMAIL"
   say "Credentials OK."
 else
   warn "SMTP login failed — check the app password / that IMAP-SMTP is enabled for the account."
-  warn "Relay config is in place; fix the password in $SASL (then 'sudo postmap $SASL') and $RC."
+  warn "Send/fetch config is written; fix the app password in $MSMTPRC and $RC, then re-run."
 fi
 rm -f "$VERIFY"
 
-# --- final manual step: vimrc ----------------------------------------------
+# --- final step: install + run muaa ----------------------------------------
 cat <<EOF
 
 ------------------------------------------------------------------------------
-Almost done. Add this to your vimrc (the only manual step):
+Almost done — install and run muaa (the standalone app):
 
-    Plug '$REPO'
-    let g:mail_root = '$MAIL_ROOT'
-    let g:mail_from = '$EMAIL'
+    make -C '$REPO' install     # symlink muaa onto your PATH (~/.local/bin)
+    muaa                        # run it; press <leader>f to fetch
 
-Then restart Vim, run :Mail, and press <leader>f to fetch.
+Your From is read from ~/.msmtprc, so no vimrc/config edit is needed.
+EOF
+
+if [ "$MAIL_ROOT" != "$HOME/Mail" ]; then
+  cat <<EOF
+
+Non-default store path — point muaa at it (pick one):
+    export MUAA_MAIL_ROOT='$MAIL_ROOT'
+    # or: mkdir -p ~/.config/muaa && echo "let g:mail_root = '$MAIL_ROOT'" >> ~/.config/muaa/config.vim
+EOF
+fi
+
+cat <<EOF
+
+Also usable as a Vim plugin:  Plug '$REPO'  +  let g:mail_root/g:mail_from='$EMAIL'.
 ------------------------------------------------------------------------------
 EOF
 say "Done."

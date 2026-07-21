@@ -11,7 +11,7 @@
 # can patch an existing ~/.getmail/getmailrc's MDA path in place (backup first).
 #
 # Usage:
-#   ./setup.sh              # print vimrc + msmtprc + getmailrc snippets
+#   ./setup.sh              # print muaa run steps + msmtprc + getmailrc snippets
 #   ./setup.sh --patch      # also offer to update ~/.getmail/getmailrc's MDA path
 
 set -eu
@@ -41,15 +41,18 @@ Detected:
   mail_store   $STORE
   inbox        $INBOX   (override by exporting MAIL_ROOT before running)
 
---- vimrc -------------------------------------------------------------------
-Plug '$REPO'
-let g:mail_root = '$MAIL_ROOT'
-let g:mail_from = 'Your Name <you@gmail.com>'
-" Optional overrides (auto-detected otherwise):
-" let g:mail_python     = '$PYTHON'
-" let g:mail_store_py   = '$STORE'
-" let g:mail_getmail_rc = '~/.getmail/getmailrc'
-" let g:mail_send_cmd   = 'msmtp -t'   " or 'sendmail -t' for a local MTA
+--- run muaa (the standalone app) ------------------------------------------
+make -C '$REPO' install    # symlink muaa onto your PATH (~/.local/bin)
+muaa                       # then run it; press <leader>f to fetch
+
+Identity (From) is read from ~/.msmtprc automatically — nothing else required.
+Optional tweaks in ~/.config/muaa/config.vim:
+  let g:mail_from = 'Your Name <you@gmail.com>'   " a display-name From
+  let g:mail_root = '$MAIL_ROOT'                   " only if not the default ~/Mail
+  let g:mail_send_cmd = 'sendmail -t'              " relay via a local MTA instead of msmtp
+(or point at the store via:  export MUAA_MAIL_ROOT='$MAIL_ROOT')
+
+Also usable as a Vim plugin:  Plug '$REPO'  +  let g:mail_root/g:mail_from.
 
 --- ~/.msmtprc (mode 600) --------------------------------------------------
 (msmtp does NOT allow trailing comments on a value line — keep # on its own line)
