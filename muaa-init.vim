@@ -20,6 +20,12 @@ set laststatus=2 noshowmode belloff=all mouse=
 set shortmess+=I
 set title titlestring=muaa
 
+" vifm-style frame: a top path bar (tabline — always shown) to go with the
+" bottom status bar the mail buffers already set. Global here on purpose; muaa
+" is a dedicated mail app, so owning the tabline is fine.
+set showtabline=2
+set tabline=%!mail#util#tabline()
+
 " --- Mail store + identity ------------------------------------------------
 " Store: defaults to the plugin's ~/Mail; override with $MUAA_MAIL_ROOT or in
 " ~/.config/muaa/config.vim. Identity: read from ~/.msmtprc (single source of

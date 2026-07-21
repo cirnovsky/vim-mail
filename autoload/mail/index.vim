@@ -322,6 +322,52 @@ function! mail#index#_current_index() abort
   return get(map, id, -1)
 endfunction
 
+" --- vifm-style status bar -------------------------------------------------
+" Bottom bar for the message list. Left: mailbox + counts (unread cached on
+" b:changedtick, so cursor motion never rescans the buffer). Right (drawn by
+" the ftplugin's statusline): the message under the cursor (from · date),
+" cached per (changedtick, line) so we build the id map only on a line change.
+" Both read the live buffer, so a staged dd immediately drops the count.
+function! mail#index#_sl_left() abort
+  if !exists('b:mail_dir')
+    return ''
+  endif
+  if get(b:, 'mail_sl_tick', -2) != b:changedtick
+    let b:mail_sl_tick = b:changedtick
+    let unread = 0
+    for l in getline(1, '$')
+      let t = stridx(l, "\t")
+      if t >= 0 && l[t + 1] ==# 'N'
+        let unread += 1
+      endif
+    endfor
+    let b:mail_sl_unread = unread
+  endif
+  let box = fnamemodify(b:mail_dir, ':t')
+  let n   = (line('$') == 1 && getline(1) ==# '') ? 0 : line('$')
+  let s   = box . '  ·  ' . n . (n == 1 ? ' msg' : ' msgs')
+  if b:mail_sl_unread > 0
+    let s .= '  ·  ' . b:mail_sl_unread . ' unread'
+  endif
+  return s
+endfunction
+
+function! mail#index#_sl_cur() abort
+  if get(b:, 'mail_slc_tick', -2) == b:changedtick && get(b:, 'mail_slc_line', -1) == line('.')
+    return b:mail_slc_val
+  endif
+  let b:mail_slc_tick = b:changedtick
+  let b:mail_slc_line = line('.')
+  let idx = mail#index#_current_index()
+  if idx < 0
+    let b:mail_slc_val = ''
+  else
+    let m = b:mail_entries[idx].meta
+    let b:mail_slc_val = trim(mail#index#_trunc(m.from, 30)) . '  ·  ' . mail#index#_short_date(m.date)
+  endif
+  return b:mail_slc_val
+endfunction
+
 function! mail#index#_target_indexes() abort
   let idx = mail#index#_current_index()
   return idx == -1 ? [] : [idx]
