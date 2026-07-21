@@ -58,12 +58,44 @@ function! s:MuaaSkin() abort
   execute 'highlight TabLineSel '   . l:g
   execute 'highlight TabLineFill '  . l:g
   execute 'highlight CursorLine '   . l:g
+  " A Cursor that matches the bar: dark text on the same grey, so the block is
+  " indistinguishable from a normal cell of the selection bar — the cursor
+  " vanishes without blanking the character under it.
+  execute 'highlight MailBlendCursor ' . l:g
 endfunction
 augroup muaa_skin
   autocmd!
   autocmd ColorScheme * call s:MuaaSkin()
 augroup END
 call s:MuaaSkin()
+
+" Hide the cursor on the read-only list pages (launcher / index / trash) — the
+" grey selection bar already marks the current line, so the block is just noise.
+" Primary method is t_ve= : emptying the 'cursor visible' termcap makes Vim stop
+" re-showing the cursor after a redraw's t_vi, a termcap-level hide that works
+" even when the terminal ignores cursor colour (the guicursor colour-blend is
+" kept only as a fallback). Scoped by filetype — compose (you type) and view (you
+" navigate the body) keep a normal cursor; restored on any other buffer AND on
+" exit, so the shell never inherits a hidden cursor.
+let s:cursor_default = &guicursor
+let s:t_ve_saved     = &t_ve
+function! s:MuaaCursor() abort
+  if index(['mail-index', 'mail-mailboxes', 'mail-trash'], &filetype) >= 0
+    " capture the real 'show cursor' sequence before blanking it (it may not be
+    " populated until the terminal is fully set up, after this file is sourced)
+    if &t_ve !=# '' | let s:t_ve_saved = &t_ve | endif
+    set t_ve=
+    set guicursor=a:block-MailBlendCursor
+  else
+    let &t_ve      = s:t_ve_saved
+    let &guicursor = s:cursor_default
+  endif
+endfunction
+augroup muaa_cursor
+  autocmd!
+  autocmd FileType,BufEnter,WinEnter * call s:MuaaCursor()
+  autocmd VimLeave * let &t_ve = s:t_ve_saved
+augroup END
 
 " The plugin (plugin/mail.vim) auto-loads at startup from the runtimepath above;
 " the launcher's `-c Mail` then opens the mailbox list.
