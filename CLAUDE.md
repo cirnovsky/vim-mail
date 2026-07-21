@@ -54,7 +54,7 @@ never parses MIME itself.
 
 ```
 plugin/mail.vim           :Mail (-> launcher / a mailbox) + g:mail_* setup
-autoload/mail/mailboxlist.vim read-only mailbox launcher (:Mail — width-tiered: ASCII scene / boxed menu / plain list; hjkl/<CR>/-/R navigation; preloads all mailbox buffers)
+autoload/mail/mailboxlist.vim read-only mailbox launcher (:Mail — width-tiered: boxed menu / plain list; vifm-style j/k jump, l/<CR> enter, h up, R re-render; preloads all mailbox buffers)
 autoload/mail/mailbox.vim mailbox path resolution, completion, prompting; ensure_defaults (inbox/sent/archive)
 autoload/mail/util.vim    shared helpers (py_cmd)
 autoload/mail/index.vim   index buffer: render, refresh/merge, line<->entry, cross-buffer :w helpers
@@ -67,7 +67,7 @@ autoload/mail/attach.vim  attachments + inline images (+ clipboard)
 autoload/mail/fetch.vim   async getmail (always into inbox); live N/M progress from getmail output
 autoload/mail/trash.vim   virtual read-only TRASH view: orphaned (last-label-deleted) canons
 ftplugin/mail-index.vim   keymaps + BufWriteCmd
-ftplugin/mail-mailboxes.vim launcher keymaps (read-only, no underline: <CR> enter, hjkl jump mailboxes, R re-render for current width, <leader>f fetch, <leader>c compose, q close)
+ftplugin/mail-mailboxes.vim launcher keymaps (read-only, no underline: l/<CR> enter, j/k jump mailboxes, h no-op (root), R re-render for current width, <leader>f fetch, <leader>c compose, q close)
 ftplugin/mail-trash.vim   TRASH keymaps (read-only viewer; yy to recover; R rescan)
 ftplugin/mail-view.vim    message-view keymaps: gx open marker, gd/gD jump placeholder<->footer
 ftplugin/mail-compose.vim :w sends
@@ -80,7 +80,7 @@ scripts/mailstore/        backend package: htmltext/ingest/quote/images/send/cli
 mail-setup.md             full backend setup doc (msmtp, getmail, store)
 setup.sh                  one-off: prints vimrc + getmailrc config for this clone
 muaa                      launcher script: runs a clean Vim as a standalone mail app
-muaa-init.vim             curated init for muaa (rtp = $VIMRUNTIME + this repo only; loads the plugin, opens :Mail)
+muaa-init.vim             curated init for muaa (rtp = $VIMRUNTIME + this repo only; loads the plugin, opens :Mail; sets the vifm-style top path bar via tabline=%!mail#util#tabline())
 Makefile                  `make test` (local) / `make test-linux` (Docker) / `make test-integration` (GreenMail)
 tests/run.sh              test runner: auto-discovers tests/test_*.{py,vim}
 tests/integration/        non-hermetic integration tests (real GreenMail + getmail); `make test-integration`
@@ -95,7 +95,7 @@ tests/test_paste.vim      native dd+p = move / yy+p = copy across mailbox buffer
 tests/test_write_all.vim  one :w commits every modified index buffer
 tests/test_fetch_merge.vim fetch/nav merges new mail into a modified buffer, edits kept
 tests/test_undo.vim       undo survives :w + navigation (merge/resync, no undo clear)
-tests/test_launcher.vim   :Mail launcher: <CR> enter, - return, defaults; golden scene render vs tests/fixtures/launcher.txt
+tests/test_launcher.vim   :Mail launcher: l/<CR> enter, h/- return, defaults; boxed-menu golden vs tests/fixtures/launcher-2.txt + width-tier fallbacks
 tests/test_trash.vim      TRASH shows orphans; yy+paste recovers; multi-label not trashed
 tests/test_preload.vim    :Mail preloads a live index buffer for every mailbox
 tests/test_fetch_progress.vim  parses getmail N/M output into live fetch progress
@@ -175,8 +175,12 @@ one place.
 Each line: `<id>\t<N|space> <date>  <from>  <subject>`
 
 - `id` is concealed (`conceallevel=2`)
-- current line underlined: buffer-local `cursorline` + `CursorLine` restyled to a
-  plain (no-background) underline in `ftplugin/mail-index.vim`
+- current line = a vifm-style **cyan selection bar**: buffer-local `cursorline` +
+  `CursorLine` restyled to a cyan background in `ftplugin/mail-index.vim`
+- **bottom status bar** (`&l:statusline`): mailbox + counts on the left, the
+  message under the cursor (`from · date`) + `i/N` on the right; unread count
+  cached on `b:changedtick`, current-message cached per line
+  (`mail#index#_sl_left`/`_sl_cur`) so cursor motion never rescans the buffer
 - `N` = unread, space = read
 - `dd`/`d3j`/`:g//d` work natively — Vim's own delete machinery
 - `b:mail_entries` = disk baseline (`[{id, dir, read, meta}]`), ordered by original sort
@@ -437,7 +441,7 @@ symlink, so `<mailbox>/<id>` is fine).
 
 | Key | Action |
 |---|---|
-| `<CR>` | Open: filtered headers + full body + thread ancestors |
+| `<CR>`, `l` | Open: filtered headers + full body + thread ancestors (vifm-style `l` = descend) |
 | `o` | Preview: body with `>` quotes stripped, horizontal split, reused buffer |
 | `v` | Same as `o`, vertical split |
 | `gm` | Mimeview: open `attachments/` in netrw split |
@@ -448,7 +452,7 @@ symlink, so `<mailbox>/<id>` is fine).
 | `dd`+`p` / `yy`+`p` | Native cross-buffer move / copy (paste into another mailbox buffer; linked on `:w`) |
 | `s` | Mark current line read (staged) |
 | `S` | Mark current line unread (staged) |
-| `-` | Up to the mailbox launcher (`:Mail` list) |
+| `h`, `-` | Up to the mailbox launcher (`:Mail` list) (vifm-style `h` = ascend) |
 | `r` | Reply (opens compose buffer, `:w` sends) |
 | `f` | Forward inline (original embedded in the body; re-render, like Gmail) |
 | `F` | Forward as attachment (original as a `message/rfc822` `.eml`; byte-exact) |
@@ -470,39 +474,30 @@ visual range with a `:normal`.
 (inbox/sent floated to top; `.store` hidden; `TRASH` appended) —
 `autoload/mail/mailboxlist.vim` +
 `ftplugin/mail-mailboxes.vim`, buffer `mail://[mailboxes]`, `nomodifiable` so a
-stray `dd` can't delete a whole mailbox. Mailboxes are drawn as **one grid-composited
-ASCII scene**: `render()` builds a char grid and `s:put`s motifs onto it (spaces
-transparent) — a row of **folder icons** (`s:ICON`; `TRASH` → `s:BIN`) framed by
-`s:TREES` on the left and `s:DOG` + `s:BIGBOX` on the right, `s:CLOUD` above, a
-ground line below — then centers it in the window (horizontal indent + blank lines
-above). **Only the folder icons are navigable** (the trees/dog/big-mailbox are
-decoration). Navigation is by **column**: `render()` records `b:mailbox_cells`
-(each folder's `cstart`/`cend` column span + name-row anchor `line`/`col`),
-`enter()` opens the mailbox under the cursor's column (`s:cell_at`, exact span
-else nearest centre), and **`hjkl` move one mailbox along the row**
-(`mail#mailboxlist#jump(±1)`: h/k left, l/j right, clamped). The current-line
-**underline is off** (`nocursorline`). A **title/footer** (`✉ muaa 2026 / cirnovsky`)
-is appended, centered in the scene width by `s:hcenter` (computed leading pad — no
-hardcoded spaces). The scene is **adaptive**: the icon row, the dog + big mailbox
-to its right, the ground line, and the title all derive from the live folder list
-(create/delete → the scene re-lays-out).
+stray `dd` can't delete a whole mailbox. Mailboxes are drawn as a **compact boxed
+menu** (vifm-style): `s:render_box` builds a unicode box (`╔…╗`, a title row
+`⚘ ✉ muaa 2026 ☠` + `cirnovsky`, one `▸ Name` row per mailbox, names Title-cased
+via `s:cap`), centered in the window. Navigation is **line-based**: `render()`
+records `b:mailbox_cells` (each mailbox's `line` + whole-line column span),
+`enter()` opens the mailbox on the cursor's line (`s:cell_at`, exact line else
+nearest), and **j/k move one mailbox** at a time (`mail#mailboxlist#jump(±1)`,
+clamped); `l`/`<CR>` enter, `h` is a no-op (the launcher is the root). The current
+line has no underline (`nocursorline`). The box is **adaptive** — one `▸` row per
+mailbox, widened only if a label won't fit (create/delete → re-lays-out). Golden:
+`tests/fixtures/launcher-2.txt`.
 
-**Three width tiers** (`get(g:,'mail_launcher_width',winwidth(0))` — the `g:`
+**Two width tiers** (`get(g:,'mail_launcher_width',winwidth(0))` — the `g:`
 overrides winwidth, since headless `-es` pins it to 80):
-- `width >= scene_w` → the ASCII scene above.
-- `>= s:box_inner(names)+2` (≈32) → **`s:render_box`**, a compact unicode boxed menu
-  (`╔…╗`, a title row `⚘ ✉ muaa 2026 ☠` + `cirnovsky`, one `▸ Name` row per mailbox,
-  names Title-cased via `s:cap`). Golden: `tests/fixtures/launcher-2.txt`. Adaptive
-  in height (a row per mailbox) and, if a label won't fit, width.
-- else → **`s:render_list`**, the old plain one-per-line list.
+- `width >= s:box_inner(names)+2` (≈32) → the boxed menu above.
+- else → **`s:render_list`**, the plain one-per-line fallback list.
 
-All three set `b:mailbox_cells` and are driven by the SAME `s:cell_at`/`jump` (which
-match by line+column, so a cell can own a column on one row (scene) or a whole line
-(box/list)) — `hjkl`/`<CR>` navigate any layout. **`R`** re-renders for the CURRENT
-width, so after resizing you get the right tier. `<CR>` enters the mailbox under the
-cursor (its own `mail://<name>` buffer, or `mail#trash#open()` for `TRASH`);
+Both set `b:mailbox_cells` and are driven by the SAME `s:cell_at`/`jump` (matching
+by line+column, each cell owning a whole line) — `j/k`/`l`/`<CR>` navigate either
+layout. **`R`** re-renders for the CURRENT
+width, so after resizing you get the right tier. `l`/`<CR>` enters the mailbox under
+the cursor (its own `mail://<name>` buffer, or `mail#trash#open()` for `TRASH`);
 `<leader>f` fetches (always into
-`inbox`); `<leader>c` composes; `-` from a mailbox returns to the list; `q`
+`inbox`); `<leader>c` composes; `h`/`-` from a mailbox returns to the list; `q`
 closes. `:Mail <box>` still
 opens a mailbox directly, skipping the list. It's
 a **launcher**, not single-buffer netrw: each mailbox keeps its own persistent

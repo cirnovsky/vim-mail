@@ -11,15 +11,14 @@ runtime plugin/mail.vim
 runtime! autoload/mail/*.vim
 filetype plugin on
 
-" Headless -es pins winwidth to 80 (too narrow for the scene, which is ~87), so
-" force the scene layout for the scene tests; the fallback test overrides this.
+" Headless -es pins winwidth to 80; force a wide layout so the boxed menu (the
+" primary tier) renders. The narrow-fallback tests override this.
 let g:mail_launcher_width = 200
 
-" Names are drawn inside an ASCII mailbox/trash-bin block now, so match the name
-" within its box line (the name row maps to that mailbox in b:mailbox_lines).
+" Box rows capitalize the name (inbox -> Inbox), so match it case-insensitively.
 function! s:goto_line(text) abort
   call cursor(1, 1)
-  let ln = search('\V' . a:text, 'cW')
+  let ln = search('\c\V' . a:text, 'cW')
   call assert_true(ln > 0, 'launcher shows ' . a:text)
 endfunction
 
@@ -85,21 +84,6 @@ function! s:normalize(lines) abort
     if l =~# '\S' | let m = min([m, strlen(matchstr(l, '^ *'))]) | endif
   endfor
   return map(ls, 'v:val[m :]')
-endfunction
-
-" Four user boxes (inbox/sent/archive/history) + TRASH: the rendered launcher
-" scene matches the golden tests/fixtures/launcher.txt.
-function! Test_launcher_render() abort
-  let root = tempname() . '/Mail'
-  call testmail#ingest(root, 'inbox', 'plain')
-  for d in ['sent', 'archive', 'history'] | call mkdir(root . '/' . d, 'p') | endfor
-  let g:mail_root = root
-  Mail
-  let got  = s:normalize(getline(1, '$'))
-  let want = s:normalize(readfile(s:repo . '/tests/fixtures/launcher.txt'))
-  call assert_equal(want, got, 'launcher render matches tests/fixtures/launcher.txt')
-  call testmail#wipe_buffers()
-  call delete(root, 'rf')
 endfunction
 
 " When the window is too narrow even for the boxed menu, fall back to the plain
@@ -178,21 +162,18 @@ function! Test_launcher_box_adaptive() abort
   call delete(root, 'rf')
 endfunction
 
-" (4) R re-renders for the CURRENT width: wide -> scene, narrower -> box, narrower
-" still -> plain list.
+" (4) R re-renders for the CURRENT width: wide enough -> boxed menu, narrower ->
+" plain list.
 function! Test_launcher_refresh() abort
   let root = tempname() . '/Mail'
   call s:build(root, ['sent', 'archive', 'history'])
-  let g:mail_launcher_width = 200
-  Mail
-  call assert_true(!empty(filter(copy(getline(1, '$')), 'v:val =~# "_||____"')), 'wide -> scene')
   let g:mail_launcher_width = 50
-  call mail#mailboxlist#render()              " R
-  call assert_true(!empty(filter(copy(getline(1, '$')), 'v:val =~# "╔"')), 'narrower + R -> box')
+  Mail
+  call assert_true(!empty(filter(copy(getline(1, '$')), 'v:val =~# "╔"')), 'wide enough -> box')
   let g:mail_launcher_width = 20
   call mail#mailboxlist#render()              " R
   call assert_equal(['inbox', 'sent', 'archive', 'history', 'TRASH'], getline(1, '$'),
-        \ 'narrower still + R -> plain list')
+        \ 'narrower + R -> plain list')
   let g:mail_launcher_width = 200
   call testmail#wipe_buffers()
   call delete(root, 'rf')
@@ -200,7 +181,7 @@ endfunction
 
 " --- runner ---
 let v:errors = []
-let s:tests = ['Test_launcher', 'Test_default_mailboxes', 'Test_launcher_render',
+let s:tests = ['Test_launcher', 'Test_default_mailboxes',
       \ 'Test_launcher_fallback', 'Test_launcher_box_fallback', 'Test_launcher_box_render',
       \ 'Test_launcher_box_adaptive', 'Test_launcher_refresh']
 for s:t in s:tests
