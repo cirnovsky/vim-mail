@@ -43,5 +43,26 @@ if filereadable(expand('~/.config/muaa/config.vim'))
   source ~/.config/muaa/config.vim
 endif
 
+" vifm-style chrome: the top path bar (tabline), bottom status bar, and current-
+" line selection are all vifm's grey-white (terminal white = a light grey) with
+" dark text. Applied AFTER config.vim so it wins over a colorscheme set there, and
+" re-applied on :colorscheme so a later theme change doesn't wipe it. Override the
+" shade by re-issuing :highlight in config.vim's own ColorScheme autocmd.
+function! s:MuaaSkin() abort
+  let l:g = 'cterm=NONE ctermbg=Grey ctermfg=Black gui=NONE guibg=#c6c6c6 guifg=#1c1c1c'
+  execute 'highlight StatusLine '   . l:g
+  execute 'highlight TabLine '      . l:g
+  execute 'highlight TabLineSel '   . l:g
+  execute 'highlight TabLineFill '  . l:g
+  execute 'highlight CursorLine '   . l:g
+  " inactive-window status bar: a dimmer grey so it reads as unfocused
+  highlight StatusLineNC cterm=NONE ctermbg=DarkGrey ctermfg=Black gui=NONE guibg=#9e9e9e guifg=#303030
+endfunction
+augroup muaa_skin
+  autocmd!
+  autocmd ColorScheme * call s:MuaaSkin()
+augroup END
+call s:MuaaSkin()
+
 " The plugin (plugin/mail.vim) auto-loads at startup from the runtimepath above;
 " the launcher's `-c Mail` then opens the mailbox list.

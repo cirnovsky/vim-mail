@@ -5,12 +5,13 @@ let b:did_ftplugin_mail_index = 1
 
 setlocal conceallevel=2 concealcursor=nvc
 
-" vifm-style selection: a solid cyan bar on the message the cursor is on (black
-" text on cyan). cursorline is buffer-local (shows only in the index); CursorLine
-" is global but only paints where cursorline is set, so your editing windows are
-" untouched. Retune the shade in your ~/.config/muaa/config.vim if you like.
+" vifm-style selection: a solid grey-white bar on the message the cursor is on
+" (dark text on light grey, like vifm's terminal white). cursorline is buffer-
+" local (shows only in the index); CursorLine is global but only paints where
+" cursorline is set, so your editing windows are untouched. Retune the shade in
+" your ~/.config/muaa/config.vim if you like.
 setlocal cursorline
-highlight CursorLine cterm=NONE ctermbg=Cyan ctermfg=Black gui=NONE guibg=#34c6d4 guifg=#04222a
+highlight CursorLine cterm=NONE ctermbg=Grey ctermfg=Black gui=NONE guibg=#c6c6c6 guifg=#1c1c1c
 
 " vifm-style bottom bar: mailbox + counts on the left, the message under the
 " cursor (from · date) and position i/N on the right. Buffer-local, so it only
