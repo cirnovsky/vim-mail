@@ -79,6 +79,8 @@ scripts/mailstore/        backend package: htmltext/ingest/quote/images/send/cli
                           ingest.ingest_one writes .store + symlink; migrate_mbox imports an .mbox
 mail-setup.md             full backend setup doc (msmtp, getmail, store)
 setup.sh                  one-off: prints vimrc + getmailrc config for this clone
+muaa                      launcher script: runs a clean Vim as a standalone mail app
+muaa-init.vim             curated init for muaa (rtp = $VIMRUNTIME + this repo only; loads the plugin, opens :Mail)
 Makefile                  `make test` (local) / `make test-linux` (Docker) / `make test-integration` (GreenMail)
 tests/run.sh              test runner: auto-discovers tests/test_*.{py,vim}
 tests/integration/        non-hermetic integration tests (real GreenMail + getmail); `make test-integration`

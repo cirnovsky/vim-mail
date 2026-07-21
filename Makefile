@@ -1,8 +1,26 @@
-.PHONY: test test-integration test-linux test-linux-clip
+.PHONY: test test-integration test-linux test-linux-clip install uninstall
 
 # Run the full test suite (Python reply tests + headless Vim tests).
 test:
 	@sh tests/run.sh
+
+# --- muaa: the standalone modal mail app ------------------------------------
+# `make install` symlinks the muaa launcher onto your PATH. A symlink (not a
+# copy) on purpose: muaa resolves the symlink back to this repo to find
+# muaa-init.vim + the plugin, so a `git pull` here updates the installed app too.
+# Override the location with e.g. `make install PREFIX=/usr/local` (needs sudo).
+PREFIX ?= $(HOME)/.local
+BINDIR ?= $(PREFIX)/bin
+
+install:
+	@mkdir -p "$(BINDIR)"
+	@ln -sf "$(CURDIR)/muaa" "$(BINDIR)/muaa"
+	@echo "installed: $(BINDIR)/muaa -> $(CURDIR)/muaa"
+	@case ":$$PATH:" in *":$(BINDIR):"*) ;; *) echo "NOTE: add $(BINDIR) to your PATH to run 'muaa'";; esac
+
+uninstall:
+	@rm -f "$(BINDIR)/muaa"
+	@echo "removed: $(BINDIR)/muaa"
 
 # Integration tests — NOT hermetic. They stand up a real local GreenMail IMAP
 # server and drive REAL getmail end to end (fetch a 200-message mailbox, verify

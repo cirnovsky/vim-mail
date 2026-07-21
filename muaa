@@ -1,0 +1,21 @@
+#!/bin/sh
+# muaa — vim-mail as a standalone modal mail client. Launches a clean Vim with
+# only the mail plugin loaded, opening straight into the mailbox launcher. It IS
+# Vim, so every keybinding works: gx opens the URL/attachment under the cursor,
+# gf the file under the cursor, plus marks, registers, visual, :commands, search.
+#
+#   muaa                 open the mail launcher
+#   muaa inbox           open a mailbox directly
+#   MUAA_VIM=nvim muaa   use a different editor binary
+#   MUAA_MAIL_ROOT=~/m   point at a different store
+#
+# Self-locating: resolve this script's real path (following symlinks, so an
+# installed `~/.local/bin/muaa` symlink still finds muaa-init.vim in the repo).
+src=$0
+while [ -L "$src" ]; do
+  dir=$(CDPATH= cd -- "$(dirname -- "$src")" && pwd)
+  src=$(readlink "$src")
+  case $src in /*) ;; *) src=$dir/$src ;; esac
+done
+here=$(CDPATH= cd -- "$(dirname -- "$src")" && pwd)
+exec "${MUAA_VIM:-vim}" -N -u "$here/muaa-init.vim" -i NONE -c "Mail $*"
