@@ -49,14 +49,15 @@ endif
 " re-applied on :colorscheme so a later theme change doesn't wipe it. Override the
 " shade by re-issuing :highlight in config.vim's own ColorScheme autocmd.
 function! s:MuaaSkin() abort
+  " One grey for every bar — tabline, active AND inactive statuslines, and the
+  " selection — so nothing reads as a different shade when a split is open.
   let l:g = 'cterm=NONE ctermbg=Grey ctermfg=Black gui=NONE guibg=#c6c6c6 guifg=#1c1c1c'
   execute 'highlight StatusLine '   . l:g
+  execute 'highlight StatusLineNC ' . l:g
   execute 'highlight TabLine '      . l:g
   execute 'highlight TabLineSel '   . l:g
   execute 'highlight TabLineFill '  . l:g
   execute 'highlight CursorLine '   . l:g
-  " inactive-window status bar: a dimmer grey so it reads as unfocused
-  highlight StatusLineNC cterm=NONE ctermbg=DarkGrey ctermfg=Black gui=NONE guibg=#9e9e9e guifg=#303030
 endfunction
 augroup muaa_skin
   autocmd!
