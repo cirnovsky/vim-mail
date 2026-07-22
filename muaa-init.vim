@@ -69,18 +69,20 @@ augroup muaa_skin
 augroup END
 call s:MuaaSkin()
 
-" Hide the cursor on the read-only list pages (launcher / index / trash) — the
-" grey selection bar already marks the current line, so the block is just noise.
-" Primary method is t_ve= : emptying the 'cursor visible' termcap makes Vim stop
-" re-showing the cursor after a redraw's t_vi, a termcap-level hide that works
-" even when the terminal ignores cursor colour (the guicursor colour-blend is
-" kept only as a fallback). Scoped by filetype — compose (you type) and view (you
-" navigate the body) keep a normal cursor; restored on any other buffer AND on
-" exit, so the shell never inherits a hidden cursor.
+" Hide the cursor only on the pages that have a grey selection bar (index +
+" trash) — the bar already marks the current line, so the block is just noise.
+" The launcher has no bar (nocursorline), so it KEEPS its cursor as the sole
+" position indicator. Primary method is t_ve= : emptying the 'cursor visible'
+" termcap makes Vim stop re-showing the cursor after a redraw's t_vi, a termcap-
+" level hide that works even when the terminal ignores cursor colour (the
+" guicursor colour-blend is kept only as a fallback). Scoped by filetype — the
+" launcher, compose (you type) and view (you navigate the body) keep a normal
+" cursor; restored on any other buffer AND on exit, so the shell never inherits a
+" hidden cursor.
 let s:cursor_default = &guicursor
 let s:t_ve_saved     = &t_ve
 function! s:MuaaCursor() abort
-  if index(['mail-index', 'mail-mailboxes', 'mail-trash'], &filetype) >= 0
+  if index(['mail-index', 'mail-trash'], &filetype) >= 0
     " capture the real 'show cursor' sequence before blanking it (it may not be
     " populated until the terminal is fully set up, after this file is sourced)
     if &t_ve !=# '' | let s:t_ve_saved = &t_ve | endif
