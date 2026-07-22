@@ -20,7 +20,7 @@ Does not work with normal password: Outlook / Hotmail / Microsoft 365, Google Wo
 
 ## Use
 
-`:Mail` = folder list; `<CR>` enters, `-` goes back, `:Mail <folder>` opens one
+`:Mail` = folder list; `l`/`<CR>` enters, `h`/`-` goes back, `:Mail <folder>` opens one
 directly. Inside a folder:
 
 | Key | Does |
