@@ -7,11 +7,14 @@ let b:did_ftplugin_mail_trash = 1
 " nomodifiable makes it a pure viewer. Recover a message with yy (native yank),
 " then p into a real mailbox buffer.
 setlocal conceallevel=2 concealcursor=nvc nomodifiable nowrap
+" Same grey selection bar as the index (vifm-style). CursorLine is global but
+" only paints where cursorline is set, so it doesn't touch editing windows.
 setlocal cursorline
-highlight CursorLine cterm=underline gui=underline ctermbg=NONE guibg=NONE
+highlight CursorLine cterm=NONE ctermbg=Grey ctermfg=Black gui=NONE guibg=#c6c6c6 guifg=#1c1c1c
 
-" Read/nav (same as the index): open, preview, mime, html, reply, forward, search.
+" Read/nav (same as the index): l/<CR> open, preview, mime, html, reply, forward.
 nnoremap <buffer> <silent> <CR> :call mail#view#open_message()<CR>
+nnoremap <buffer> <silent> l    :call mail#view#open_message()<CR>
 nnoremap <buffer> <silent> o    :call mail#view#preview(0)<CR>
 nnoremap <buffer> <silent> v    :call mail#view#preview(1)<CR>
 nnoremap <buffer> <silent> gm   :call mail#view#mimeview()<CR>
@@ -20,6 +23,7 @@ nnoremap <buffer> <silent> r    :call mail#compose#reply()<CR>
 nnoremap <buffer> <silent> f    :call mail#compose#forward()<CR>
 nnoremap <buffer> <silent> F    :call mail#compose#forward_attach()<CR>
 nnoremap <buffer> <silent> <leader>s :call mail#view#search()<CR>
-" R rescans (orphans change as you delete/recover); - returns to the launcher.
+" R rescans (orphans change as you delete/recover); h/- returns to the launcher.
 nnoremap <buffer> <silent> R    :call mail#trash#refresh()<CR>
+nnoremap <buffer> <silent> h    :call mail#mailboxlist#open()<CR>
 nnoremap <buffer> <silent> -    :call mail#mailboxlist#open()<CR>
