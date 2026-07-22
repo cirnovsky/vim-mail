@@ -118,11 +118,38 @@ endfunction
 " gx: open the URL / attachment under the cursor.
 function! mail#view#open_marker() abort
   let t = mail#view#_resolve_at(line('.'), col('.'))
-  if empty(t)
-    echo 'No link or attachment under cursor'
+  if !empty(t)
+    call mail#view#_open_external(t.target)
     return
   endif
-  call mail#view#_open_external(t.target)
+  " No [N]/attachment marker: fall back to a bare URL under the cursor (plain-
+  " text links carry no marker). netrw's gx would open it, but this buffer's gx
+  " mapping shadows netrw — so replicate that behaviour here.
+  let url = mail#view#_url_at(line('.'), col('.'))
+  if url !=# ''
+    call mail#view#_open_external(url)
+    return
+  endif
+  echo 'No link, attachment, or URL under cursor'
+endfunction
+
+" A bare URL under the cursor (byte column a:col on line a:lnum), or '' — gx's
+" fallback when there's no marker. Finds the URL-match span covering the cursor
+" and trims trailing sentence punctuation (e.g. a period the body put right after
+" the link, as in a plain-text 'see https://…/programme.').
+function! mail#view#_url_at(lnum, col) abort
+  let line  = getline(a:lnum)
+  let pat   = '\%(https\?\|ftp\)://[^[:space:]]\+\|mailto:[^[:space:]]\+'
+  let start = 0
+  while 1
+    let m = matchstrpos(line, pat, start)
+    if m[1] < 0 | break | endif
+    if a:col - 1 >= m[1] && a:col - 1 < m[2]
+      return substitute(m[0], '[.,;:!?)\]}>''"]\+$', '', '')
+    endif
+    let start = m[2]
+  endwhile
+  return ''
 endfunction
 
 " gd: from an inline placeholder jump down to its footer entry.

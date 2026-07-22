@@ -426,8 +426,12 @@ frontend — no change to the stored `body.txt`.** It reads the markers already
 there: inline `[N]` → its `Links:` footer URL; inline `[img N]`/`[audio N]` and
 the `Attachments:` footer `[N] filename` → `<dir>/attachments/<file>`. Keys: `gx`
 opens the placeholder under the cursor (via `mail#view#_open_external`, the
-`open`/`xdg-open` helper shared with the `x` html-open), `gd` jumps an inline
-placeholder down to its footer entry, `gD` jumps back up. Resolution is
+`open`/`xdg-open` helper shared with the `x` html-open); when there's **no**
+marker under the cursor it falls back to a **bare URL** there
+(`mail#view#_url_at`, trailing sentence punctuation trimmed) — plain-text links
+carry no `[N]`, and the buffer-local `gx` mapping otherwise shadows netrw's `gx`
+that would open them. `gd` jumps an inline placeholder down to its footer entry,
+`gD` jumps back up. Resolution is
 **section-relative** — a placeholder binds to the nearest matching footer *below*
 it (`s:footer_line` searches forward) — so a threaded view with one
 `Links:`/`Attachments:` block per message resolves each message's `[N]` against

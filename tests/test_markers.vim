@@ -79,9 +79,24 @@ function! Test_no_marker() abort
   call delete(root, 'rf')
 endfunction
 
+" --- bare URL in the body (no marker): gx falls back to opening it (the fix for
+" plain-text links, which html_to_text leaves as raw text with no [N]) ---
+function! Test_bare_url() abort
+  enew
+  call setline(1, [
+        \ 'register at https://event.ntu.edu.sg/cocoon2026/pages/programme.',
+        \ 'plain words with no link at all'])
+  " cursor anywhere on the URL resolves it; the trailing period is trimmed
+  call assert_equal('https://event.ntu.edu.sg/cocoon2026/pages/programme',
+        \ mail#view#_url_at(1, 20), 'bare URL resolved, trailing period trimmed')
+  " a line with no URL -> empty (no false hit)
+  call assert_equal('', mail#view#_url_at(2, 5), 'no url under cursor -> empty')
+  bwipeout!
+endfunction
+
 " --- runner ---
 let v:errors = []
-let s:tests = ['Test_link_marker', 'Test_attachment_marker', 'Test_no_marker']
+let s:tests = ['Test_link_marker', 'Test_attachment_marker', 'Test_no_marker', 'Test_bare_url']
 for s:t in s:tests
   try
     call call(s:t, [])
